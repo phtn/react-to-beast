@@ -1,0 +1,5 @@
+import { RouterProvider, createRouter } from "@octanejs/tanstack-router"
+
+props { router }: { router: ReturnType<typeof createRouter> }
+
+RouterProvider(router={router})

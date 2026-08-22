@@ -1,0 +1,5 @@
+props { error }: { error: Error }
+
+section#tanstack-project-error(role="alert")
+  h1 Project failed
+  p #{error.message}

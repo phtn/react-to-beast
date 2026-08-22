@@ -1,0 +1,11 @@
+import { Link, Outlet } from "@octanejs/tanstack-router"
+
+main#tanstack-shell
+  nav(aria-label="Primary")
+    Link(id="tanstack-home-link" to="/") Home
+    Link(id="tanstack-alpha-link" to="/projects/$projectId" params={{ projectId: "alpha" }} search={{ tab: "activity" }}) Alpha
+    Link(id="tanstack-beta-link" to="/projects/$projectId" params={{ projectId: "beta" }} search={{ tab: "summary" }}) Beta
+    Link(id="tanstack-legacy-link" to="/projects/$projectId" params={{ projectId: "legacy" }} search={{ tab: "summary" }}) Legacy
+    Link(id="tanstack-broken-link" to="/projects/$projectId" params={{ projectId: "broken" }} search={{ tab: "summary" }}) Broken
+  output#tanstack-navigation-state(aria-live="polite") idle
+  Outlet

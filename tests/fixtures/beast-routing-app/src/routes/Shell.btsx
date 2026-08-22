@@ -1,0 +1,14 @@
+import { Link, NavLink, Outlet, useNavigation } from "@octanejs/remix-router"
+
+setup
+  const navigation = useNavigation();
+
+main#route-shell
+  nav(aria-label="Primary")
+    Link(id="home-link" to="/") Home
+    NavLink(id="alpha-link" to="/projects/alpha?tab=activity") Alpha
+    Link(id="beta-link" to="/projects/beta?tab=summary") Beta
+    Link(id="legacy-link" to="/legacy") Legacy
+    Link(id="broken-link" to="/projects/broken") Broken
+  output#navigation-state(aria-live="polite") #{navigation.state}
+  Outlet

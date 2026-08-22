@@ -24,7 +24,7 @@ function auditFixture(name, style = "tailwind") {
 test("audits a basic Vite app and defaults toward a staged interactive port", () => {
   const report = auditFixture("vite-basic");
 
-  assert.equal(report.schemaVersion, 2);
+  assert.equal(report.schemaVersion, 3);
   assert.equal(report.requested.styling, "tailwind");
   assert.deepEqual(report.target, { candidate: "vite-spa", status: "default" });
   assert.deepEqual(report.frameworks, ["react", "vite"]);
@@ -40,6 +40,12 @@ test("audits a basic Vite app and defaults toward a staged interactive port", ()
 test("recognizes React Router data mode and proposes a reviewed Octane binding", () => {
   const report = auditFixture("react-router-data");
   const routeIds = report.routing.models.map((model) => model.id);
+  const projectRoute = report.routing.manifest.routes.find(
+    (route) => route.path.normalized === "/projects/:projectId",
+  );
+  const legacyRoute = report.routing.manifest.routes.find(
+    (route) => route.path.normalized === "/legacy",
+  );
 
   assert.deepEqual(routeIds, ["react-router-data"]);
   assert.deepEqual(report.dependencies.bindingCandidates, [
@@ -52,6 +58,22 @@ test("recognizes React Router data mode and proposes a reviewed Octane binding",
     },
   ]);
   assert.equal(report.routing.requiresContractReview, true);
+  assert.equal(report.routing.manifest.version, 1);
+  assert.equal(report.routing.manifest.summary.routes, 5);
+  assert.deepEqual(projectRoute.params, [{ name: "projectId", modifier: "required" }]);
+  assert.deepEqual(projectRoute.capabilities, [
+    "action",
+    "blocker",
+    "error",
+    "loader",
+    "mutation",
+    "params",
+    "revalidation",
+    "search",
+  ]);
+  assert.ok(projectRoute.checkpoints.includes("mutation-revalidation"));
+  assert.deepEqual(projectRoute.search, { mode: "consumed-unvalidated", keys: ["tab"] });
+  assert.deepEqual(legacyRoute.redirects, ["/projects/current?tab=summary"]);
   assert.equal(report.risk.level, "high");
   assert.ok(report.risk.warnings.includes("ROUTE_CONTRACT_REQUIRED"));
   assert.deepEqual(report.recommendedPhases, ["foundation", "interactive", "routing"]);
@@ -76,6 +98,7 @@ test("prints help without reading a source tree", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /--style <tailwind\|css>/);
+  assert.match(result.stdout, /--routes <path\|->/);
   assert.equal(result.stderr, "");
 });
 
@@ -98,7 +121,7 @@ test("refuses to replace a JSON report unless force is explicit", async () => {
       encoding: "utf8",
     });
     assert.equal(replaced.status, 0, replaced.stderr);
-    assert.equal(JSON.parse(await readFile(outputPath, "utf8")).schemaVersion, 2);
+    assert.equal(JSON.parse(await readFile(outputPath, "utf8")).schemaVersion, 3);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
@@ -171,6 +194,115 @@ test("renders the interactive matrix as source-safe Markdown", () => {
   assert.match(result.stdout, /src\/InteractiveProfile\.tsx \| text-every-edit/);
   assert.doesNotMatch(result.stdout, /setInterval\(\(\)/);
   assert.equal(result.stderr, "");
+});
+
+test("normalizes nested React Router declarative routes", () => {
+  const report = auditFixture("react-router-declarative");
+  const routes = report.routing.manifest.routes;
+  const projects = routes.find((route) => route.path.normalized === "/projects" && !route.index);
+  const project = routes.find((route) => route.path.normalized === "/projects/:projectId");
+  const notFound = routes.find((route) => route.path.normalized === "/*");
+
+  assert.deepEqual(report.routing.models.map((model) => model.id), ["react-router-declarative"]);
+  assert.equal(routes.length, 5);
+  assert.equal(project.parentId, projects.id);
+  assert.deepEqual(project.params, [{ name: "projectId", modifier: "required" }]);
+  assert.ok(notFound.capabilities.includes("not-found"));
+  assert.equal(report.routing.targets[0].candidate, "@octanejs/remix-router");
+});
+
+test("requires an explicit rewrite target for React Router Framework Mode", () => {
+  const report = auditFixture("react-router-framework");
+  const project = report.routing.manifest.routes.find(
+    (route) => route.path.normalized === "/projects/:projectId",
+  );
+
+  assert.deepEqual(report.routing.models.map((model) => model.id), ["react-router-framework"]);
+  assert.deepEqual(report.target, { candidate: "router-target-decision", status: "review-required" });
+  assert.equal(report.routing.targets[0].status, "rewrite-required");
+  assert.deepEqual(project.capabilities, ["action", "error", "loader", "mutation", "params", "redirect"]);
+  assert.ok(report.routing.findings.items.some((finding) => finding.code === "ROUTING_FRAMEWORK_MODE_REWRITE"));
+  assert.ok(report.risk.blockers.includes("ROUTE_TARGET_DECISION_REQUIRED"));
+});
+
+test("normalizes TanStack code and file route trees without conflating their modes", () => {
+  const codeReport = auditFixture("tanstack-code");
+  const codeProject = codeReport.routing.manifest.routes.find(
+    (route) => route.path.normalized === "/projects/:projectId",
+  );
+  const fileReport = auditFixture("tanstack-file");
+  const fileRoot = fileReport.routing.manifest.routes.find((route) => route.path.kind === "root");
+  const fileProject = fileReport.routing.manifest.routes.find(
+    (route) => route.path.normalized === "/projects/:projectId",
+  );
+
+  assert.deepEqual(codeReport.routing.models.map((model) => model.id), ["tanstack-code"]);
+  assert.deepEqual(codeProject.params, [{ name: "projectId", modifier: "required" }]);
+  assert.deepEqual(codeProject.search, { mode: "validated", keys: ["tab"] });
+  assert.deepEqual(codeProject.redirects, ["/projects/:projectId"]);
+  assert.ok(codeProject.capabilities.includes("middleware"));
+  assert.ok(codeProject.capabilities.includes("loader"));
+  assert.deepEqual(fileReport.routing.models.map((model) => model.id), ["tanstack-file"]);
+  assert.deepEqual(fileReport.target, { candidate: "router-target-decision", status: "review-required" });
+  assert.equal(fileReport.routing.targets[0].status, "generator-review-required");
+  assert.equal(fileProject.parentId, fileRoot.id);
+  assert.ok(fileProject.capabilities.includes("search"));
+  assert.ok(fileReport.routing.findings.items.some((finding) => finding.code === "ROUTING_TANSTACK_GENERATOR_REQUIRED"));
+});
+
+test("infers Remix flat-route paths while blocking an unsafe framework import swap", () => {
+  const report = auditFixture("remix-routes");
+  const root = report.routing.manifest.routes.find((route) => route.path.kind === "root");
+  const project = report.routing.manifest.routes.find(
+    (route) => route.path.normalized === "/projects/:projectId",
+  );
+
+  assert.deepEqual(report.routing.models.map((model) => model.id), ["remix"]);
+  assert.equal(project.parentId, root.id);
+  assert.ok(project.capabilities.includes("loader"));
+  assert.ok(project.capabilities.includes("action"));
+  assert.equal(report.routing.targets[0].status, "rewrite-required");
+  assert.ok(report.routing.findings.items.some((finding) => finding.code === "ROUTING_REMIX_MODULE_REWRITE"));
+});
+
+test("renders the normalized route manifest as source-safe Markdown", () => {
+  const source = path.join(testsDirectory, "fixtures", "react-router-data");
+  const result = spawnSync(process.execPath, [auditScript, source, "--routes", "-"], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /# Normalized route manifest/);
+  assert.match(result.stdout, /\/projects\/:projectId/);
+  assert.match(result.stdout, /loader-pending-success-error/);
+  assert.doesNotMatch(result.stdout, /request\.formData/);
+  assert.equal(result.stderr, "");
+});
+
+test("keeps computed route paths unresolved instead of inventing a normalized URL", async () => {
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "react-beast-dynamic-route-"));
+  try {
+    await writeFile(
+      path.join(temporaryDirectory, "package.json"),
+      JSON.stringify({ dependencies: { react: "19.2.0", "react-router": "8.2.0" } }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(temporaryDirectory, "App.tsx"),
+      'import { Routes, Route } from "react-router";\nexport const App = ({ routePath }) => <Routes><Route path={routePath} element={<h1>Dynamic</h1>} /></Routes>;\n',
+      "utf8",
+    );
+    const result = spawnSync(process.execPath, [auditScript, temporaryDirectory, "--json", "-"], {
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.routing.manifest.routes[0].path.normalized, null);
+    assert.equal(report.routing.manifest.status, "partial-review-required");
+    assert.ok(report.routing.findings.items.some((finding) => finding.code === "ROUTING_DYNAMIC_PATH_REVIEW"));
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test("does not echo malformed package contents in its report", async () => {

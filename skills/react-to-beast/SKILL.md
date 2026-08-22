@@ -8,7 +8,7 @@ license: ISC
 
 Port applications as verified vertical slices. Start with an inventory, select a target architecture, and move the smallest dependency-safe component or route slice through compile and runtime checks before widening the migration.
 
-Version 0.2 covers whole-project inventory, target selection, Tailwind-or-CSS planning, scaffolding, presentational components, and reviewed interactive function-component ports. It generates source-located findings and a parity matrix for hooks, forms/native events, refs, context, portals, boundaries, hydration, and third-party bindings. Router and server-framework conversion remain later milestones; inventory them without guessing through them.
+Version 0.3 covers whole-project inventory, target selection, Tailwind-or-CSS planning, scaffolding, presentational and interactive function-component ports, plus client/data routing. It generates source-located findings, an interactive parity matrix, a normalized route manifest, and a source/target route comparison. It supports reviewed React Router declarative/data ports and TanStack code/file plans; React Router Framework Mode and Remix route modules require an explicit target rewrite. Next.js and broader server-framework conversion remain later milestones.
 
 ## Protect the source
 
@@ -44,7 +44,14 @@ node "$REACT_TO_BEAST_SKILL_DIR/scripts/react-beast-audit.mjs" <source> \
   --style tailwind --matrix -
 ```
 
-Use `--style css` for the pure-CSS path. `--json` and `--matrix` are separate output modes. Save either to a new file only when the user benefits from a durable artifact; the command refuses to replace one unless `--force` is supplied.
+Generate the route contract when any routing model is detected:
+
+```bash
+node "$REACT_TO_BEAST_SKILL_DIR/scripts/react-beast-audit.mjs" <source> \
+  --style tailwind --routes -
+```
+
+Use `--style css` for the pure-CSS path. `--json`, `--matrix`, and `--routes` are separate output modes. Save an artifact only when the user benefits from it; the command refuses to replace one unless `--force` is supplied.
 
 Read the report as a migration map, not as proof of compatibility. Confirm ambiguous findings in source files before acting. Classify work into these phases:
 
@@ -75,6 +82,7 @@ Read only the reference needed for the current slice:
 - When ref, context, portal, boundary, or hydration signals appear, read [refs-context-boundaries.md](references/refs-context-boundaries.md).
 - When binding candidates or unknown React-facing dependencies appear, read [bindings.md](references/bindings.md).
 - When any router or metaframework is detected, read [routing-inventory.md](references/routing-inventory.md) before editing routes.
+- For a routed slice, read [route-manifest.md](references/route-manifest.md), the matching [React Router](references/react-router.md), [TanStack Router](references/tanstack-router.md), or [Remix](references/remix-route-modules.md) protocol reference, and [route-checkpoints.md](references/route-checkpoints.md).
 
 ## 3. Scaffold the destination
 
@@ -106,6 +114,15 @@ For each slice:
 6. Compile the changed `.btsx` files, run the target typecheck/build, and exercise the affected state or URL.
 7. Record parity gaps before beginning the next slice.
 
+For a routed slice, generate the target manifest and compare it before changing route ownership:
+
+```bash
+node "$REACT_TO_BEAST_SKILL_DIR/scripts/react-beast-route-compare.mjs" \
+  <source> <destination>
+```
+
+Treat `matched` as a static contract gate only. Run every emitted route checkpoint in both implementations.
+
 Prefer explicit manual ports over broad textual replacement. Never claim whole-app completion while routes, server behavior, or user-visible states remain unverified.
 
 ## 5. Verify proportionally
@@ -117,10 +134,11 @@ At minimum:
 - test default, empty, loading, error, and interactive states that the slice owns;
 - compare key routes and layouts at representative viewport sizes;
 - verify direct navigation, back/forward behavior, params, search state, and redirects for migrated routes;
+- verify links, reload, not-found/error ownership, loader/action flows, blockers, scroll/focus, and revalidation when the route manifest calls for them;
 - report unsupported APIs, retained React boundaries or React-hosted Octane islands, and deliberate visual or behavioral differences.
 - for interactive slices, exercise native events, effect/ref cleanup, keyboard/focus behavior, provider updates, portal ownership, and hydration rows that the matrix identifies.
 
-## v0.2 capability gates
+## v0.3 capability gates
 
 Proceed through function-component state, supported hooks, native forms, ordinary refs, context, portals, boundaries, and hydration only after their audit findings and matrix rows are reviewed. Preserve explicit dependency arrays; React's omitted dependency argument means every render, while Octane infers captures, so use `null` only when every-render parity is intended.
 
@@ -133,10 +151,18 @@ Require an explicit rewrite plan before changing:
 - a third-party package until the exact used surface, differences, and SSR/hydration status of its candidate binding are verified;
 - a React-hosted incremental island unless the migration contract intentionally retains a React 19 host. `octane/react` hosts Octane inside React; it does not automatically host React packages inside a standalone Beast app.
 
+For routing:
+
+- React Router declarative/data routes may target `@octanejs/remix-router` only after Beast, Octane, binding, and source-router versions are resolved together and every used API/SSR behavior is reviewed.
+- React Router Framework Mode is not a direct binding swap. Convert it to reviewed data routes or choose an Octane full-app router.
+- TanStack code routes may target `@octanejs/tanstack-router`; file routes require the TSRX-aware generator owned by `@octanejs/tanstack-start` or an explicit code-tree conversion.
+- Remix route modules require a selected data-router/full-app target. Keep server loaders/actions, sessions, headers, status, metadata, and document ownership out of browser code.
+- Do not move a route slice until its source/target manifests match or differences are accepted and its runtime checkpoints pass.
+
 Stop, explain the boundary, and move it to the routing or server milestone when a slice contains:
 
 - React Server Components, Flight/cache behavior, server actions, middleware, or framework-specific streaming;
-- router loaders/actions, generated route types, blockers, deferred data, or other route behavior not yet mapped to a verified Beast binding;
+- route loaders/actions, generated types, blockers, deferred data, or server behavior without an explicit verified target and checkpoint evidence;
 - runtime CSS-in-JS, Sass/Less build assumptions, or styling whose ordering/scoping cannot yet be reproduced;
 - a React package with no verified Octane binding, native equivalent, or explicit retained boundary.
 

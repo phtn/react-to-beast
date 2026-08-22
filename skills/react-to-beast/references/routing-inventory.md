@@ -1,6 +1,8 @@
 # Routing inventory
 
-Version 0.1 recognizes route protocols and builds a migration contract. It does not automatically rewrite route trees. Routing is application architecture: preserve URLs and behavior before optimizing syntax.
+Version 0.3 recognizes route protocols, emits a normalized route manifest, and compares source/target route contracts. It does not blindly rewrite route trees. Routing is application architecture: preserve URLs and behavior before optimizing syntax.
+
+Use [route-manifest.md](route-manifest.md) for the artifact and comparison workflow. Then read the protocol reference that applies: [react-router.md](react-router.md), [tanstack-router.md](tanstack-router.md), or [remix-route-modules.md](remix-route-modules.md). Use [route-checkpoints.md](route-checkpoints.md) before a route slice takes ownership.
 
 ## Record every route contract
 

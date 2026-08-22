@@ -1,0 +1,19 @@
+import { Form, useActionData, useBlocker, useLoaderData, useParams, useSearchParams } from "@octanejs/remix-router"
+
+setup
+  const { projectId } = useParams();
+  const loaderData = useLoaderData() as { project: { id: string } };
+  const actionData = useActionData() as { saved?: string } | undefined;
+  const [search, setSearch] = useSearchParams();
+  useBlocker(false);
+
+section#project-route
+  h1#project-title Project #{projectId ?? loaderData.project.id}
+  p#project-tab Tab: #{search.get("tab") ?? "summary"}
+  button#activity-tab(type="button" onClick={() => setSearch({ tab: "activity" })}) Show activity
+  Form(method="post")
+    label(for="project-name") Name
+    input#project-name(name="name" defaultValue={loaderData.project.id})
+    button(type="submit") Save
+  if actionData?.saved
+    output#saved-project Saved #{actionData.saved}

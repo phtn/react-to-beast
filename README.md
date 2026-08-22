@@ -2,9 +2,9 @@
 
 A Codex skill for porting complete React applications to Beast BTSX → TSRX → Octane in verified stages. Tailwind is the default styling target, with pure CSS available as an explicit option.
 
-## Version 0.2
+## Version 0.3
 
-The interactive-semantics release provides:
+The client/data-routing release provides:
 
 - a bounded, dependency-free React application audit;
 - detection for Vite, Create React App, React Router, TanStack Router, Remix, and Next.js conventions;
@@ -13,13 +13,18 @@ The interactive-semantics release provides:
 - safe scaffolding and basic presentational JSX-to-BTSX porting guidance;
 - source-located interactive findings with no source excerpts or secret values;
 - a generated Markdown parity matrix for state, effects, forms, refs, context, portals, boundaries, transitions, and hydration;
+- a normalized, source-located route manifest plus a source/target route-contract comparator;
+- React Router declarative/data route support and explicit rewrite gates for Framework Mode;
+- TanStack code/file route inventories with typed search/loader/generator review gates;
+- Remix flat-route/module inventories with explicit client/server target decisions;
+- route-by-route checkpoints for direct loads, links, reload, history, params/search, loaders/actions, redirects, errors, not-found, blockers, scroll, and hydration;
 - reviewed hook mappings, including React/Octane omitted-dependency semantics;
 - native event guidance for text fields, checkables, selects, forms, and React synthetic event types;
 - direct-ref, context, portal, Suspense/error-boundary, hydration, and React-hosted Octane-island strategies;
 - categorized Octane binding candidates with explicit surface/SSR review gates;
-- fixtures covering Vite, interactive React, React Router data routing, Next App Router, and executable Beast components.
+- fixtures covering React Router's three modes, TanStack code/file trees, Remix modules, Next App Router, and executable Beast components.
 
-The test suite compiles client/server and development/production modes, executes focus/cleanup/form/portal/hydration behavior in a DOM, transforms the fixture in Vite development, and runs a production build. Advanced route and server conversions are intentionally identified rather than guessed through.
+The test suite compiles client/server and development/production modes, executes interactive and routed behavior in a DOM, compares source and Beast route manifests, transforms fixtures through Vite, and runs production builds. Executable React Router Data and TanStack code-router Beast fixtures prove nested links, params/search, direct entry, back/forward, redirects, loader errors, and not-found state; the React Router fixture also proves actions. React Router Framework Mode, Remix request ownership, Next.js, and broader server conversions are explicitly planned rather than guessed through.
 
 ## Install locally
 
@@ -59,9 +64,8 @@ uv run --isolated --with pyyaml python \
 
 See [ROADMAP.md](ROADMAP.md) for the staged plan and exit criteria:
 
-1. Routing: React Router modes, TanStack Router, Remix route modules, and contract parity.
-2. Next.js: Pages Router and App Router plans, server/client boundaries, actions, API routes, and deployment behavior.
-3. Advanced automation: AST-assisted conversion, React-hosted Octane islands, SSR, and browser/visual parity checks.
+1. Next.js: Pages Router and App Router plans, server/client boundaries, actions, API routes, and deployment behavior.
+2. Advanced automation: AST-assisted conversion, React-hosted Octane islands, SSR, and browser/visual parity checks.
 
 ## License
 

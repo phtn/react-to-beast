@@ -47,22 +47,24 @@ Exit criteria:
 - behavior tests cover native form events, keyboard input, cleanup, focus, context, portals, and hydration adoption;
 - the audit emits a source-safe Markdown state matrix and categorized binding candidates.
 
-## v0.3 — Client and data routers
+## v0.3 — Client and data routers (implemented)
 
-Add an intermediate route manifest, then support:
+Capabilities:
 
-- React Router declarative, data, and framework modes;
-- TanStack code-based and file-based route trees;
-- Remix route-module inventories and reviewed target mappings;
+- normalized route manifest with source locations, parent/path/param contracts, capabilities, targets, and checkpoints;
+- deterministic source/target route comparison for paths, route roles, nesting, params, search keys/modes, redirect targets, and owned capabilities;
+- React Router declarative and data targets, with a hard rewrite gate for Framework Mode;
+- TanStack code-based targets and file-based generator plans;
+- Remix flat-route/module inventories with hard client/server target gates;
 - nested layouts/outlets, params, typed search state, links, redirects, errors, blockers, scroll restoration, loaders, actions, and revalidation;
 - route-by-route migration checkpoints and hybrid handoff contracts.
 
-Exit criteria:
+Exit evidence:
 
-- each router mode has a realistic nested fixture with direct-navigation tests;
-- original and Beast route manifests compare paths, params, search, nesting, redirects, and owned states;
-- loader/action conversion requires an explicit verified target rather than a package-name match;
-- browser tests cover links, reloads, back/forward, not-found, error, and mutation flows.
+- realistic nested fixtures cover React Router declarative/data/framework modes, TanStack code/file trees, and Remix route modules;
+- the React Router data source/Beast manifests match across five nested/index/dynamic/redirect/wildcard routes, and the TanStack code source/Beast manifests match across four root/index/nested/dynamic routes;
+- loader/action and framework-mode findings require explicit targets rather than package-name matches;
+- both routed Beast fixtures compile client/server in development/production, build with Vite, and execute direct entry, links, search/params, back/forward, redirects, not-found, and loader errors in a DOM; the React Router fixture also covers reload-equivalent recreation and action data.
 
 ## v0.4 — Next.js and server boundaries
 

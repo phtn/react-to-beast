@@ -1,0 +1,10 @@
+import { useLoaderData, useParams, useSearch } from "@octanejs/tanstack-router"
+
+setup
+  const params = useParams({ strict: false }) as { projectId?: string };
+  const search = useSearch({ strict: false }) as { tab?: string };
+  const loaderData = useLoaderData({ strict: false }) as { project: { id: string } };
+
+section#tanstack-project-route
+  h1#tanstack-project-title Project #{params.projectId ?? loaderData.project.id}
+  p#tanstack-project-tab Tab: #{search.tab ?? "summary"}

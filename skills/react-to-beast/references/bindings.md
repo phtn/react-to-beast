@@ -32,7 +32,7 @@ Never mass-rewrite package names solely from the audit report.
 | Styling | `styled-components` → `@octanejs/styled-components` | SSR extraction, insertion order, theming, generated classes, hydration |
 | Testing | `@testing-library/react` → `@octanejs/testing-library` | Render/cleanup API, async settling, event realism, query parity |
 
-The audit also reports routing candidates, but actual router conversion belongs to the routing milestone.
+For routing candidates, follow the normalized manifest workflow and the protocol-specific [React Router](react-router.md), [TanStack Router](tanstack-router.md), or [Remix](remix-route-modules.md) gate. Resolve Beast, Octane, and router-binding peer versions together before installing.
 
 ## Category-specific gates
 

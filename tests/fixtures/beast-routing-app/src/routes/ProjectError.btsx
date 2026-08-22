@@ -1,0 +1,9 @@
+import { useRouteError } from "@octanejs/remix-router"
+
+setup
+  const error = useRouteError();
+  const message = error instanceof Error ? error.message : String(error);
+
+section#project-error(role="alert")
+  h1 Project failed
+  p #{message}

@@ -1,0 +1,14 @@
+{
+  "name": "react-router-framework-fixture",
+  "private": true,
+  "dependencies": {
+    "@react-router/node": "^8.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router": "^8.2.0"
+  },
+  "devDependencies": {
+    "@react-router/dev": "^8.2.0",
+    "vite": "^8.0.0"
+  }
+}

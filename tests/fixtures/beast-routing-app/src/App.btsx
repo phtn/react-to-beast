@@ -1,0 +1,5 @@
+import { createMemoryRouter, RouterProvider } from "@octanejs/remix-router"
+
+props { router }: { router: ReturnType<typeof createMemoryRouter> }
+
+RouterProvider(router={router})

@@ -5,7 +5,8 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
+const ROUTE_MANIFEST_VERSION = 1;
 const DEFAULT_MAX_FILES = 20_000;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_REPORTED_PATHS = 500;
@@ -19,6 +20,8 @@ const SOURCE_EXTENSIONS = new Set([
   ".cjs",
   ".mts",
   ".cts",
+  ".btsx",
+  ".tsrx",
   ".css",
   ".scss",
   ".sass",
@@ -233,6 +236,89 @@ const MATRIX_CHECKS = {
   },
 };
 
+const ROUTE_TARGETS = {
+  "react-router-declarative": {
+    protocol: "react-router",
+    mode: "declarative",
+    candidate: "@octanejs/remix-router",
+    status: "binding-review-required",
+    reason: "Declarative routing is available through the Octane binding; verify the pinned React Router and Octane surfaces before swapping imports.",
+  },
+  "react-router-data": {
+    protocol: "react-router",
+    mode: "data",
+    candidate: "@octanejs/remix-router",
+    status: "binding-review-required",
+    reason: "Data routers are available through the Octane binding, but loader/action execution and SSR ownership must be selected explicitly.",
+  },
+  "react-router-framework": {
+    protocol: "react-router",
+    mode: "framework",
+    candidate: "data-router-or-tanstack-start",
+    status: "rewrite-required",
+    reason: "The Octane React Router binding intentionally stubs Framework Mode; convert route modules to a reviewed data-router target or choose an Octane full-app router.",
+  },
+  "tanstack-code": {
+    protocol: "tanstack-router",
+    mode: "code",
+    candidate: "@octanejs/tanstack-router",
+    status: "binding-review-required",
+    reason: "Code-based route trees can use the Octane binding after version, type, SSR, and behavior review.",
+  },
+  "tanstack-file": {
+    protocol: "tanstack-router",
+    mode: "file",
+    candidate: "@octanejs/tanstack-start",
+    status: "generator-review-required",
+    reason: "File routing needs the TSRX-aware generator integration owned by Octane TanStack Start, or an explicit conversion to a code route tree.",
+  },
+  remix: {
+    protocol: "remix",
+    mode: "route-modules",
+    candidate: "react-router-data-or-tanstack-start",
+    status: "rewrite-required",
+    reason: "Remix framework route modules and request handling are not a direct binding swap; choose and verify a client/server target per route contract.",
+  },
+  "next-app": {
+    protocol: "nextjs",
+    mode: "app",
+    candidate: "server-boundary-plan",
+    status: "planned-v0.4",
+    reason: "Next App Router server, cache, streaming, and route-handler contracts require the dedicated server-boundary phase.",
+  },
+  "next-pages": {
+    protocol: "nextjs",
+    mode: "pages",
+    candidate: "server-boundary-plan",
+    status: "planned-v0.4",
+    reason: "Next Pages Router data methods, document ownership, and API routes require the dedicated server-boundary phase.",
+  },
+  "custom-history": {
+    protocol: "custom-history",
+    mode: "manual",
+    candidate: "explicit-route-contract",
+    status: "rewrite-required",
+    reason: "Manual history behavior must be modeled before selecting or implementing a target router.",
+  },
+};
+
+const ROUTE_FEATURE_APIS = [
+  { feature: "outlet", expression: /\bOutlet\b/g },
+  { feature: "link", expression: /\b(?:Link|NavLink|Navigate|useNavigate)\b/g },
+  { feature: "params", expression: /\b(?:useParams|params\b)/g },
+  { feature: "search", expression: /\b(?:useSearchParams|useSearch|validateSearch|searchSchema)\b/g },
+  { feature: "redirect", expression: /\bredirect\s*\(/g },
+  { feature: "error", expression: /\b(?:ErrorBoundary|errorElement|errorComponent|useRouteError|CatchBoundary)\b/g },
+  { feature: "pending", expression: /\b(?:HydrateFallback|hydrateFallbackElement|pendingComponent|useNavigation)\b/g },
+  { feature: "not-found", expression: /\b(?:notFound|notFoundComponent|defaultNotFoundComponent)\b/g },
+  { feature: "blocker", expression: /\b(?:useBlocker|unstable_usePrompt|Block)\b/g },
+  { feature: "scroll-restoration", expression: /\bScrollRestoration\b/g },
+  { feature: "revalidation", expression: /\b(?:useRevalidator|shouldRevalidate|router\.invalidate)\b/g },
+  { feature: "mutation", expression: /\b(?:Form|useFetcher|useFetchers|useSubmit)\b/g },
+  { feature: "middleware", expression: /\b(?:middleware|beforeLoad)\b/g },
+  { feature: "metadata", expression: /\b(?:Meta|Links|meta|links|headers)\b/g },
+];
+
 function usage() {
   return `Usage: react-beast-audit [source] [options]
 
@@ -242,8 +328,9 @@ Options:
   --style <tailwind|css>  Requested Beast styling target (default: tailwind)
   --json <path|->        Write JSON to a file, or to stdout with -
   --matrix <path|->      Write the interactive parity matrix as Markdown
+  --routes <path|->      Write the normalized route manifest as Markdown
   --max-files <number>   Stop after this many candidate files (default: ${DEFAULT_MAX_FILES})
-  --force                Replace an existing --json file
+  --force                Replace an existing output file
   -h, --help             Show this help
 `;
 }
@@ -254,6 +341,7 @@ function parseArguments(argv) {
     style: "tailwind",
     json: null,
     matrix: null,
+    routes: null,
     force: false,
     maxFiles: DEFAULT_MAX_FILES,
     help: false,
@@ -266,13 +354,20 @@ function parseArguments(argv) {
       options.help = true;
     } else if (argument === "--force") {
       options.force = true;
-    } else if (argument === "--style" || argument === "--json" || argument === "--matrix" || argument === "--max-files") {
+    } else if (
+      argument === "--style" ||
+      argument === "--json" ||
+      argument === "--matrix" ||
+      argument === "--routes" ||
+      argument === "--max-files"
+    ) {
       const value = argv[index + 1];
       if (value === undefined) throw new Error(`${argument} requires a value`);
       index += 1;
       if (argument === "--style") options.style = value;
       if (argument === "--json") options.json = value;
       if (argument === "--matrix") options.matrix = value;
+      if (argument === "--routes") options.routes = value;
       if (argument === "--max-files") options.maxFiles = Number(value);
     } else if (argument.startsWith("-")) {
       throw new Error(`Unknown option: ${argument}`);
@@ -290,8 +385,8 @@ function parseArguments(argv) {
   if (!Number.isSafeInteger(options.maxFiles) || options.maxFiles < 1) {
     throw new Error("--max-files must be a positive integer");
   }
-  if (options.json !== null && options.matrix !== null) {
-    throw new Error("--json and --matrix are separate output modes; choose one");
+  if ([options.json, options.matrix, options.routes].filter((value) => value !== null).length > 1) {
+    throw new Error("--json, --matrix, and --routes are separate output modes; choose one");
   }
   return options;
 }
@@ -569,18 +664,872 @@ function addRouteSignal(routeSignals, id, file, signal) {
   routeSignals.set(id, current);
 }
 
-function inspectRoutes(file, text, routeSignals) {
+function createRoutingCollector() {
+  return {
+    records: [],
+    recordKeys: new Set(),
+    findings: createFindingCollector(),
+    moduleFeatures: new Map(),
+    moduleSearchKeys: new Map(),
+    moduleRedirects: new Map(),
+    sourceFiles: new Set(),
+    parsedRouteArrays: new Set(),
+  };
+}
+
+function findDelimitedEnd(text, start, open, close) {
+  if (text[start] !== open) return -1;
+  let depth = 0;
+  let quote = null;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let cursor = start; cursor < text.length; cursor += 1) {
+    const character = text[cursor];
+    const next = text[cursor + 1];
+    const previous = text[cursor - 1];
+
+    if (lineComment) {
+      if (character === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (character === "*" && next === "/") {
+        blockComment = false;
+        cursor += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote && previous !== "\\") quote = null;
+      continue;
+    }
+    if (character === "/" && next === "/") {
+      lineComment = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      blockComment = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === open) depth += 1;
+    if (character === close) {
+      depth -= 1;
+      if (depth === 0) return cursor;
+    }
+  }
+  return -1;
+}
+
+function splitTopLevelRanges(text, start, end) {
+  const ranges = [];
+  let segmentStart = start;
+  let parentheses = 0;
+  let braces = 0;
+  let brackets = 0;
+  let quote = null;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let cursor = start; cursor < end; cursor += 1) {
+    const character = text[cursor];
+    const next = text[cursor + 1];
+    const previous = text[cursor - 1];
+    if (lineComment) {
+      if (character === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (character === "*" && next === "/") {
+        blockComment = false;
+        cursor += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote && previous !== "\\") quote = null;
+      continue;
+    }
+    if (character === "/" && next === "/") {
+      lineComment = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      blockComment = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") parentheses += 1;
+    else if (character === ")") parentheses = Math.max(0, parentheses - 1);
+    else if (character === "{") braces += 1;
+    else if (character === "}") braces = Math.max(0, braces - 1);
+    else if (character === "[") brackets += 1;
+    else if (character === "]") brackets = Math.max(0, brackets - 1);
+    else if (character === "," && parentheses === 0 && braces === 0 && brackets === 0) {
+      ranges.push({ start: segmentStart, end: cursor });
+      segmentStart = cursor + 1;
+    }
+  }
+  ranges.push({ start: segmentStart, end });
+  return ranges;
+}
+
+function trimRange(text, range) {
+  let start = range.start;
+  let end = range.end;
+  while (start < end && /\s/.test(text[start])) start += 1;
+  while (end > start && /\s/.test(text[end - 1])) end -= 1;
+  return { start, end, text: text.slice(start, end) };
+}
+
+function callArguments(text, openParen) {
+  const closeParen = findDelimitedEnd(text, openParen, "(", ")");
+  if (closeParen === -1) return null;
+  return {
+    closeParen,
+    arguments: splitTopLevelRanges(text, openParen + 1, closeParen).map((range) => trimRange(text, range)),
+  };
+}
+
+function parseStaticString(value) {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if ((quote !== '"' && quote !== "'") || trimmed.at(-1) !== quote) return null;
+  for (let index = 1; index < trimmed.length - 1; index += 1) {
+    if (trimmed[index] === quote && trimmed[index - 1] !== "\\") return null;
+  }
+  return trimmed.slice(1, -1).replace(/\\([\\"'])/g, "$1");
+}
+
+function parseObjectProperties(text, objectStart, objectEnd) {
+  const properties = new Map();
+  for (const range of splitTopLevelRanges(text, objectStart + 1, objectEnd)) {
+    const trimmed = trimRange(text, range);
+    const match = /^(?:([A-Za-z_$][\w$]*)|(["'])([^"']+)\2)\s*:/.exec(trimmed.text);
+    if (!match) continue;
+    const name = match[1] ?? match[3];
+    const colonOffset = trimmed.start + match[0].lastIndexOf(":");
+    properties.set(name, trimRange(text, { start: colonOffset + 1, end: trimmed.end }));
+  }
+  return properties;
+}
+
+function assignedIdentifier(text, callStart) {
+  const prefix = text.slice(Math.max(0, callStart - 240), callStart);
+  return /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*$/.exec(prefix)?.[1] ?? null;
+}
+
+function importedModuleForSymbol(text, symbol) {
+  if (!symbol) return null;
+  for (const match of text.matchAll(/\bimport\s+([\s\S]*?)\s+from\s+["']([^"']+)["']/g)) {
+    const clause = match[1].trim();
+    const defaultImport = /^([A-Za-z_$][\w$]*)/.exec(clause)?.[1] ?? null;
+    if (defaultImport === symbol) return match[2];
+    const named = /\{([\s\S]*?)\}/.exec(clause)?.[1] ?? "";
+    for (const entry of named.split(",")) {
+      const parts = entry.trim().replace(/^type\s+/, "").split(/\s+as\s+/);
+      if ((parts[1] ?? parts[0]) === symbol) return match[2];
+    }
+  }
+  return null;
+}
+
+function relatedModulesFromProperties(text, properties) {
+  const symbols = [];
+  for (const name of [
+    "Component",
+    "ErrorBoundary",
+    "HydrateFallback",
+    "component",
+    "errorComponent",
+    "pendingComponent",
+    "notFoundComponent",
+  ]) {
+    const symbol = /^([A-Za-z_$][\w$]*)$/.exec(properties.get(name)?.text ?? "")?.[1];
+    if (symbol) symbols.push(symbol);
+  }
+  for (const name of ["element", "errorElement", "hydrateFallbackElement"]) {
+    const symbol = /<([A-Z][A-Za-z0-9_$]*)\b/.exec(properties.get(name)?.text ?? "")?.[1];
+    if (symbol) symbols.push(symbol);
+  }
+  return uniqueSorted(symbols.map((symbol) => importedModuleForSymbol(text, symbol)).filter(Boolean));
+}
+
+function searchKeysFromText(text) {
+  const keys = new Set();
+  const variables = [];
+  for (const match of text.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*useSearch\s*\(/g)) variables.push(match[1]);
+  for (const match of text.matchAll(/\b(?:const|let|var)\s*\[\s*([A-Za-z_$][\w$]*)[^\]]*\]\s*=\s*useSearchParams\s*\(/g)) variables.push(match[1]);
+  for (const variable of variables) {
+    const escaped = variable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const match of text.matchAll(new RegExp(`\\b${escaped}\\.get\\s*\\(\\s*["']([A-Za-z0-9_.-]+)["']`, "g"))) {
+      keys.add(match[1]);
+    }
+    for (const match of text.matchAll(new RegExp(`\\b${escaped}\\.([A-Za-z_$][\\w$]*)`, "g"))) {
+      if (!["append", "delete", "get", "has", "set", "sort", "toString"].includes(match[1])) keys.add(match[1]);
+    }
+  }
+  return [...keys].sort();
+}
+
+function searchKeysFromProperties(properties) {
+  const validator = properties.get("validateSearch")?.text;
+  if (!validator) return [];
+  const body = /=>\s*\(\s*\{([\s\S]*?)\}\s*\)/.exec(validator)?.[1]
+    ?? /=>\s*\{([\s\S]*?)\}/.exec(validator)?.[1]
+    ?? /return\s+\{([\s\S]*?)\}/.exec(validator)?.[1]
+    ?? "";
+  const keys = [];
+  for (const match of body.matchAll(/(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:/g)) keys.push(match[1]);
+  return uniqueSorted(keys);
+}
+
+function redirectTargetsFromText(text) {
+  const targets = [];
+  for (const match of text.matchAll(/\bredirect\s*\(\s*["']([^"']+)["']/g)) targets.push(normalizeRoutePattern(match[1]));
+  for (const match of text.matchAll(/\bredirect\s*\(\s*\{[\s\S]*?\bto\s*:\s*["']([^"']+)["']/g)) {
+    targets.push(normalizeRoutePattern(match[1]));
+  }
+  return uniqueSorted(targets);
+}
+
+function normalizeRoutePattern(pattern) {
+  if (pattern === null) return null;
+  const normalizedSegments = pattern
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      if (segment === "$" || segment === "*") return "*";
+      if (segment.startsWith("$")) return `:${segment.slice(1)}`;
+      return segment;
+    });
+  return `/${normalizedSegments.join("/")}`.replace(/\/$/, "") || "/";
+}
+
+function joinRoutePattern(parentPattern, localPattern, index, pathless) {
+  const parent = parentPattern ?? "/";
+  if (index || pathless || localPattern === null || localPattern === "") return parent;
+  const normalizedLocal = normalizeRoutePattern(localPattern);
+  if (localPattern.startsWith("/")) return normalizedLocal;
+  return normalizeRoutePattern(`${parent}/${normalizedLocal.slice(1)}`);
+}
+
+function routeParams(pattern) {
+  if (pattern === null) return [];
+  const params = [];
+  for (const segment of pattern.split("/")) {
+    if (segment === "*") {
+      params.push({ name: "*", modifier: "splat" });
+      continue;
+    }
+    const match = /^:([^?*]+)([?*]?)$/.exec(segment);
+    if (!match) continue;
+    params.push({
+      name: match[1],
+      modifier: match[2] === "?" ? "optional" : match[2] === "*" ? "splat" : "required",
+    });
+  }
+  return params;
+}
+
+function routeCheckpoints(record) {
+  const checks = new Set(["direct-navigation", "in-app-navigation", "reload", "back-forward"]);
+  if (record.parentId !== null || record.path.kind === "pathless") checks.add("nested-layout-outlet");
+  if (record.params.length > 0 || record.capabilities.includes("params")) checks.add("param-decoding");
+  if (record.capabilities.includes("search")) checks.add("search-round-trip");
+  if (record.capabilities.includes("loader")) checks.add("loader-pending-success-error");
+  if (record.capabilities.includes("action") || record.capabilities.includes("mutation")) checks.add("mutation-revalidation");
+  if (record.capabilities.includes("redirect")) checks.add("redirect-history");
+  if (record.capabilities.includes("error")) checks.add("owned-error-boundary");
+  if (record.capabilities.includes("pending")) checks.add("owned-pending-state");
+  if (record.capabilities.includes("not-found")) checks.add("owned-not-found-state");
+  if (record.capabilities.includes("blocker")) checks.add("navigation-blocking");
+  if (record.capabilities.includes("scroll-restoration")) checks.add("scroll-restoration");
+  return [...checks].sort();
+}
+
+function addRouteFinding(routing, finding) {
+  addFinding(routing.findings, finding);
+}
+
+function addRouteRecord(routing, record) {
+  const baseId = `${record.model}:${record.source.file}:${record.source.line}`;
+  let id = baseId;
+  let suffix = 2;
+  while (routing.recordKeys.has(id)) {
+    id = `${baseId}:${suffix}`;
+    suffix += 1;
+  }
+  routing.recordKeys.add(id);
+  const sourcePattern = record.sourcePattern ?? null;
+  const normalizedPattern = record.normalizedPattern ?? normalizeRoutePattern(sourcePattern);
+  const target = ROUTE_TARGETS[record.model] ?? {
+    candidate: "explicit-route-contract",
+    status: "review-required",
+  };
+  const entry = {
+    id,
+    model: record.model,
+    source: record.source,
+    module: record.module ?? null,
+    parentId: record.parentId ?? null,
+    index: record.index ?? false,
+    path: {
+      source: sourcePattern,
+      normalized: normalizedPattern,
+      kind: record.pathKind ?? (sourcePattern === null ? "dynamic-review" : "static"),
+    },
+    params: routeParams(normalizedPattern),
+    capabilities: uniqueSorted(record.capabilities ?? []),
+    execution: record.execution ?? "review-required",
+    target: { candidate: target.candidate, status: target.status },
+    _localPath: record.localPath ?? sourcePattern,
+    _parentSymbol: record.parentSymbol ?? null,
+    _symbol: record.symbol ?? null,
+    _convention: record.convention ?? null,
+    _parentConvention: record.parentConvention ?? null,
+    _relatedModules: uniqueSorted(record.relatedModules ?? []),
+    _searchKeys: uniqueSorted(record.searchKeys ?? []),
+    _searchMode: record.searchMode ?? null,
+    _redirects: uniqueSorted(record.redirects ?? []),
+  };
+  routing.records.push(entry);
+  return entry;
+}
+
+function capabilitiesFromProperties(properties, body = "") {
+  const capabilities = [];
+  const propertyFeatures = new Map([
+    ["loader", "loader"],
+    ["action", "action"],
+    ["clientLoader", "loader"],
+    ["clientAction", "action"],
+    ["errorElement", "error"],
+    ["ErrorBoundary", "error"],
+    ["errorComponent", "error"],
+    ["pendingComponent", "pending"],
+    ["hydrateFallbackElement", "pending"],
+    ["notFoundComponent", "not-found"],
+    ["validateSearch", "search"],
+    ["loaderDeps", "search"],
+    ["shouldRevalidate", "revalidation"],
+    ["middleware", "middleware"],
+    ["beforeLoad", "middleware"],
+    ["children", "layout"],
+  ]);
+  for (const [property, feature] of propertyFeatures) {
+    if (properties.has(property)) capabilities.push(feature);
+  }
+  if (/\bOutlet\b/.test(body)) capabilities.push("outlet");
+  if (/\b(?:Link|NavLink|Navigate)\b/.test(body)) capabilities.push("link");
+  if (/\bparams\b/.test(body)) capabilities.push("params");
+  if (/\bredirect\s*\(/.test(body)) capabilities.push("redirect");
+  if (/\bnotFound\s*\(/.test(body)) capabilities.push("not-found");
+  return uniqueSorted(capabilities);
+}
+
+function addExecutionFindings(routing, record) {
+  if (record.capabilities.includes("loader")) {
+    addRouteFinding(routing, {
+      code: "ROUTING_LOADER_TARGET_REQUIRED",
+      severity: "review",
+      category: "execution",
+      file: record.source.file,
+      line: record.source.line,
+      reason: "A loader needs an explicit browser/server target, request context, cache policy, error contract, and direct-navigation test.",
+    });
+  }
+  if (record.capabilities.includes("action")) {
+    addRouteFinding(routing, {
+      code: "ROUTING_ACTION_TARGET_REQUIRED",
+      severity: "review",
+      category: "execution",
+      file: record.source.file,
+      line: record.source.line,
+      reason: "An action needs an explicit transport, validation, authentication, mutation, redirect, and revalidation target.",
+    });
+  }
+}
+
+function registerRouteModuleFeatures(file, text, routing) {
+  const routeContext =
+    /from\s+["'](?:react-router(?:-dom)?|@react-router\/|@remix-run\/|@tanstack\/react-router|@octanejs\/(?:remix-router|tanstack-router))/.test(text) ||
+    /^(?:app\/)?routes\//.test(file) ||
+    /(?:^|\/)routes\.[^/]+$/.test(file) ||
+    /(?:^|\/)__root\.[^/]+$/.test(file);
+  if (!routeContext) return;
+
+  const lineFor = makeLineLocator(text);
+  const locations = [];
+  for (const { feature, expression } of ROUTE_FEATURE_APIS) {
+    expression.lastIndex = 0;
+    for (const match of text.matchAll(expression)) {
+      locations.push({ feature, file, line: lineFor(match.index) });
+    }
+  }
+  for (const feature of ["loader", "action", "clientLoader", "clientAction"]) {
+    const expression = new RegExp(`\\bexport\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${feature}\\b`, "g");
+    for (const match of text.matchAll(expression)) {
+      locations.push({
+        feature: feature.toLowerCase().includes("loader") ? "loader" : "action",
+        file,
+        line: lineFor(match.index),
+      });
+    }
+  }
+  if (locations.length === 0) return;
+  const unique = new Map();
+  for (const location of locations) unique.set(`${location.feature}\0${location.line}`, location);
+  routing.moduleFeatures.set(file, [...unique.values()]);
+  const searchKeys = searchKeysFromText(text);
+  if (searchKeys.length > 0) routing.moduleSearchKeys.set(file, searchKeys);
+  const redirects = redirectTargetsFromText(text);
+  if (redirects.length > 0) routing.moduleRedirects.set(file, redirects);
+}
+
+function inspectDeclarativeRoutes(file, text, routing, model) {
+  const lineFor = makeLineLocator(text);
+  const stack = [];
+  const expression = /<\/?Route(?=[\s/>])/g;
+  for (const match of text.matchAll(expression)) {
+    const closing = text[match.index + 1] === "/";
+    if (closing) {
+      stack.pop();
+      continue;
+    }
+    let quote = null;
+    let braces = 0;
+    let end = match.index;
+    for (; end < text.length; end += 1) {
+      const character = text[end];
+      const previous = text[end - 1];
+      if (quote !== null) {
+        if (character === quote && previous !== "\\") quote = null;
+        continue;
+      }
+      if (character === '"' || character === "'" || character === "`") quote = character;
+      else if (character === "{") braces += 1;
+      else if (character === "}") braces = Math.max(0, braces - 1);
+      else if (character === ">" && braces === 0) break;
+    }
+    if (end >= text.length) continue;
+    const tag = text.slice(match.index, end + 1);
+    const line = lineFor(match.index);
+    const sourcePattern = staticStringAttribute(tag, "path");
+    const hasPath = hasAttribute(tag, "path");
+    const index = hasStaticTrueAttribute(tag, "index");
+    const pathless = !hasPath && !index;
+    const parent = stack.at(-1) ?? null;
+    const capabilities = [];
+    if (hasAttribute(tag, "loader")) capabilities.push("loader");
+    if (hasAttribute(tag, "action")) capabilities.push("action");
+    if (hasAttribute(tag, "errorElement") || hasAttribute(tag, "ErrorBoundary")) capabilities.push("error");
+    if (hasAttribute(tag, "hydrateFallbackElement")) capabilities.push("pending");
+    if (hasAttribute(tag, "shouldRevalidate")) capabilities.push("revalidation");
+    if (hasAttribute(tag, "children") || !/\/>\s*$/.test(tag)) capabilities.push("layout");
+    if (sourcePattern === "*" || sourcePattern?.endsWith("/*")) capabilities.push("not-found");
+    const record = addRouteRecord(routing, {
+      model,
+      source: { file, line },
+      sourcePattern,
+      normalizedPattern: hasPath && sourcePattern === null
+        ? null
+        : joinRoutePattern(parent?.path.normalized ?? "/", sourcePattern, index, pathless),
+      pathKind: hasPath ? (sourcePattern === null ? "dynamic-review" : "static") : index ? "index" : "pathless",
+      parentId: parent?.id ?? null,
+      index,
+      capabilities,
+      relatedModules: uniqueSorted([
+        importedModuleForSymbol(text, /\belement\s*=\s*\{\s*<([A-Z][A-Za-z0-9_$]*)\b/.exec(tag)?.[1]),
+        importedModuleForSymbol(text, /\bComponent\s*=\s*\{\s*([A-Z][A-Za-z0-9_$]*)\s*\}/.exec(tag)?.[1]),
+      ].filter(Boolean)),
+      execution: model === "react-router-declarative" ? "client" : "review-required",
+    });
+    addExecutionFindings(routing, record);
+    if (hasPath && sourcePattern === null) {
+      addRouteFinding(routing, {
+        code: "ROUTING_DYNAMIC_PATH_REVIEW",
+        severity: "review",
+        category: "matching",
+        file,
+        line,
+        reason: "A non-literal route path cannot be normalized statically; resolve the value and preserve its matching semantics manually.",
+      });
+    }
+    if (!/\/>\s*$/.test(tag)) stack.push(record);
+  }
+}
+
+function resolveArrayArgument(text, argument) {
+  if (argument.text.startsWith("[")) {
+    const end = findDelimitedEnd(text, argument.start, "[", "]");
+    return end === -1 ? null : { start: argument.start, end };
+  }
+  const identifier = /^([A-Za-z_$][\w$]*)$/.exec(argument.text)?.[1];
+  if (!identifier) return null;
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const assignment = new RegExp(`(?:const|let|var)\\s+${escaped}\\s*(?::[^=;]+)?=\\s*\\[`, "g").exec(text);
+  if (!assignment) return null;
+  const start = assignment.index + assignment[0].lastIndexOf("[");
+  const end = findDelimitedEnd(text, start, "[", "]");
+  return end === -1 ? null : { start, end };
+}
+
+function inspectRouteObjectArray(file, text, routing, model, array, parentRecord = null) {
+  const lineFor = makeLineLocator(text);
+  for (const rawRange of splitTopLevelRanges(text, array.start + 1, array.end)) {
+    const range = trimRange(text, rawRange);
+    if (!range.text.startsWith("{")) continue;
+    const objectEnd = findDelimitedEnd(text, range.start, "{", "}");
+    if (objectEnd === -1 || objectEnd > range.end) continue;
+    const properties = parseObjectProperties(text, range.start, objectEnd);
+    const index = /^true\b/.test(properties.get("index")?.text ?? "");
+    const pathProperty = properties.get("path") ?? null;
+    const sourcePattern = pathProperty ? parseStaticString(pathProperty.text) : null;
+    const routeLike = pathProperty !== null || index || properties.has("children") || properties.has("Component") || properties.has("element");
+    if (!routeLike) continue;
+    const pathless = pathProperty === null && !index;
+    const localBody = [...properties.entries()]
+      .filter(([name]) => name !== "children")
+      .map(([, value]) => value.text)
+      .join("\n");
+    const capabilities = capabilitiesFromProperties(properties, localBody);
+    if (sourcePattern === "*" || sourcePattern?.endsWith("/*")) capabilities.push("not-found");
+    const line = lineFor(range.start);
+    const record = addRouteRecord(routing, {
+      model,
+      source: { file, line },
+      sourcePattern,
+      normalizedPattern: pathProperty && sourcePattern === null
+        ? null
+        : joinRoutePattern(parentRecord?.path.normalized ?? "/", sourcePattern, index, pathless),
+      pathKind: pathProperty ? (sourcePattern === null ? "dynamic-review" : "static") : index ? "index" : "pathless",
+      parentId: parentRecord?.id ?? null,
+      index,
+      capabilities,
+      relatedModules: relatedModulesFromProperties(text, properties),
+      searchKeys: searchKeysFromProperties(properties),
+      searchMode: properties.has("validateSearch") ? "validated" : null,
+      redirects: redirectTargetsFromText(localBody),
+      execution: capabilities.some((feature) => feature === "loader" || feature === "action") ? "review-required" : "client",
+    });
+    addExecutionFindings(routing, record);
+    if (pathProperty && sourcePattern === null) {
+      addRouteFinding(routing, {
+        code: "ROUTING_DYNAMIC_PATH_REVIEW",
+        severity: "review",
+        category: "matching",
+        file,
+        line,
+        reason: "A non-literal route-object path cannot be normalized statically; resolve the value and preserve its matching semantics manually.",
+      });
+    }
+    const children = properties.get("children");
+    if (children?.text.startsWith("[")) {
+      const childEnd = findDelimitedEnd(text, children.start, "[", "]");
+      if (childEnd !== -1) inspectRouteObjectArray(file, text, routing, model, { start: children.start, end: childEnd }, record);
+    }
+  }
+}
+
+function inspectDataRouteCalls(file, text, routing) {
+  const calls = [
+    { name: "createBrowserRouter", model: "react-router-data" },
+    { name: "createHashRouter", model: "react-router-data" },
+    { name: "createMemoryRouter", model: "react-router-data" },
+    { name: "useRoutes", model: "react-router-declarative" },
+  ];
+  for (const call of calls) {
+    for (const site of findCallSites(text, call.name)) {
+      const parsed = callArguments(text, site.openParen);
+      const firstArgument = parsed?.arguments[0];
+      if (!firstArgument) continue;
+      const array = resolveArrayArgument(text, firstArgument);
+      const arrayKey = array ? `${call.model}\0${file}\0${array.start}` : null;
+      if (array && !routing.parsedRouteArrays.has(arrayKey)) {
+        routing.parsedRouteArrays.add(arrayKey);
+        inspectRouteObjectArray(file, text, routing, call.model, array);
+      }
+      else {
+        addRouteFinding(routing, {
+          code: "ROUTING_DYNAMIC_TREE_REVIEW",
+          severity: "review",
+          category: "matching",
+          file,
+          line: makeLineLocator(text)(site.offset),
+          reason: "The router receives a route tree that this bounded static audit cannot follow; export or document a normalized route manifest before porting.",
+        });
+      }
+    }
+  }
+}
+
+function inspectFrameworkRoutes(file, text, routing) {
+  if (!/(?:^|\/)routes\.[^/]+$/.test(file) && !/from\s+["']@react-router\/dev\/routes["']/.test(text)) return;
+  const lineFor = makeLineLocator(text);
+  const calls = [];
+  for (const name of ["index", "layout", "prefix", "route"]) {
+    for (const site of findCallSites(text, name)) {
+      const parsed = callArguments(text, site.openParen);
+      if (!parsed) continue;
+      calls.push({ name, start: site.offset, end: parsed.closeParen, arguments: parsed.arguments, record: null });
+    }
+  }
+  calls.sort((left, right) => left.start - right.start || right.end - left.end);
+  if (calls.length > 0) {
+    addRouteFinding(routing, {
+      code: "ROUTING_FRAMEWORK_MODE_REWRITE",
+      severity: "blocker",
+      category: "target",
+      file,
+      line: lineFor(calls[0].start),
+      reason: "React Router Framework Mode has no direct Octane runtime target; choose a data-router rewrite or a verified full-app router before converting route modules.",
+    });
+  }
+
+  for (const call of calls) {
+    if (call.name === "prefix") continue;
+    const ancestors = calls.filter((candidate) => candidate.start < call.start && candidate.end > call.end);
+    const parentCall = [...ancestors].reverse().find((candidate) => candidate.name === "route" || candidate.name === "layout") ?? null;
+    const pathSegments = [];
+    for (const ancestor of [...ancestors, call].sort((left, right) => left.start - right.start)) {
+      if (ancestor.name !== "prefix" && ancestor.name !== "route") continue;
+      const segment = parseStaticString(ancestor.arguments[0]?.text ?? "");
+      if (segment !== null) pathSegments.push(segment);
+    }
+    const index = call.name === "index";
+    const pathless = call.name === "layout";
+    const sourcePattern = call.name === "route" ? parseStaticString(call.arguments[0]?.text ?? "") : null;
+    const moduleArgument = call.name === "route" ? call.arguments[1] : call.arguments[0];
+    const module = moduleArgument ? parseStaticString(moduleArgument.text) : null;
+    const normalizedPattern = call.name === "route" && sourcePattern === null
+      ? null
+      : index || pathless
+      ? parentCall?.record?.path.normalized ?? normalizeRoutePattern(pathSegments.join("/"))
+      : normalizeRoutePattern(pathSegments.join("/"));
+    call.record = addRouteRecord(routing, {
+      model: "react-router-framework",
+      source: { file, line: lineFor(call.start) },
+      sourcePattern,
+      normalizedPattern,
+      pathKind: index ? "index" : pathless ? "pathless" : sourcePattern === null ? "dynamic-review" : "static",
+      parentId: parentCall?.record?.id ?? null,
+      index,
+      module,
+      capabilities: pathless ? ["layout"] : [],
+      execution: "server-or-client-review",
+    });
+  }
+}
+
+function inspectTanStackCodeRoutes(file, text, routing, model = "tanstack-code") {
+  const lineFor = makeLineLocator(text);
+  const names = ["createRootRoute", "createRootRouteWithContext", "createRoute"];
+  for (const name of names) {
+    for (const site of findCallSites(text, name)) {
+      const parsed = callArguments(text, site.openParen);
+      const first = parsed?.arguments[0];
+      let properties = new Map();
+      let body = "";
+      if (first?.text.startsWith("{")) {
+        const objectEnd = findDelimitedEnd(text, first.start, "{", "}");
+        if (objectEnd !== -1) {
+          properties = parseObjectProperties(text, first.start, objectEnd);
+          body = text.slice(first.start, objectEnd + 1);
+        }
+      }
+      const root = name !== "createRoute";
+      const pathProperty = properties.get("path") ?? properties.get("id") ?? null;
+      const sourcePattern = root ? "/" : pathProperty ? parseStaticString(pathProperty.text) : null;
+      const parentText = properties.get("getParentRoute")?.text ?? "";
+      const parentSymbol = /=>\s*([A-Za-z_$][\w$]*)/.exec(parentText)?.[1] ?? null;
+      const capabilities = capabilitiesFromProperties(properties, body);
+      const record = addRouteRecord(routing, {
+        model,
+        source: { file, line: lineFor(site.offset) },
+        sourcePattern,
+        normalizedPattern: root ? "/" : normalizeRoutePattern(sourcePattern),
+        pathKind: root ? "root" : sourcePattern === null ? "dynamic-review" : "static",
+        capabilities: root ? uniqueSorted([...capabilities, "layout"]) : capabilities,
+        execution: capabilities.some((feature) => feature === "loader" || feature === "action" || feature === "middleware")
+          ? "client-or-server-review"
+          : "client",
+        symbol: assignedIdentifier(text, site.offset),
+        parentSymbol,
+        localPath: sourcePattern,
+        relatedModules: relatedModulesFromProperties(text, properties),
+        searchKeys: searchKeysFromProperties(properties),
+        searchMode: properties.has("validateSearch") ? "validated" : null,
+        redirects: redirectTargetsFromText(body),
+      });
+      addExecutionFindings(routing, record);
+      if (!root && pathProperty && sourcePattern === null) {
+        addRouteFinding(routing, {
+          code: "ROUTING_DYNAMIC_PATH_REVIEW",
+          severity: "review",
+          category: "matching",
+          file,
+          line: record.source.line,
+          reason: "A non-literal TanStack route path cannot be normalized statically; preserve its typed matching contract manually.",
+        });
+      }
+    }
+  }
+}
+
+function inspectTanStackFileRoutes(file, text, routing) {
+  const lineFor = makeLineLocator(text);
+  const isRootFile = /(?:^|\/)routes\/__root\.[^/]+$/.test(file) || /(?:^|\/)__root\.[^/]+$/.test(file);
+  if (isRootFile) inspectTanStackCodeRoutes(file, text, routing, "tanstack-file");
+
+  for (const name of ["createFileRoute", "createLazyFileRoute"]) {
+    for (const site of findCallSites(text, name)) {
+      const parsed = callArguments(text, site.openParen);
+      const sourcePattern = parseStaticString(parsed?.arguments[0]?.text ?? "");
+      let properties = new Map();
+      let body = "";
+      if (parsed) {
+        let cursor = parsed.closeParen + 1;
+        while (/\s/.test(text[cursor] ?? "")) cursor += 1;
+        if (text[cursor] === "(") {
+          const options = callArguments(text, cursor)?.arguments[0];
+          if (options?.text.startsWith("{")) {
+            const objectEnd = findDelimitedEnd(text, options.start, "{", "}");
+            if (objectEnd !== -1) {
+              properties = parseObjectProperties(text, options.start, objectEnd);
+              body = text.slice(options.start, objectEnd + 1);
+            }
+          }
+        }
+      }
+      const capabilities = capabilitiesFromProperties(properties, body);
+      if (name === "createLazyFileRoute") capabilities.push("lazy");
+      const record = addRouteRecord(routing, {
+        model: "tanstack-file",
+        source: { file, line: lineFor(site.offset) },
+        sourcePattern,
+        normalizedPattern: normalizeRoutePattern(sourcePattern),
+        pathKind: sourcePattern === null ? "dynamic-review" : "file-generated",
+        capabilities,
+        execution: capabilities.some((feature) => feature === "loader" || feature === "middleware")
+          ? "client-or-server-review"
+          : "client",
+        localPath: sourcePattern,
+        relatedModules: relatedModulesFromProperties(text, properties),
+        searchKeys: searchKeysFromProperties(properties),
+        searchMode: properties.has("validateSearch") ? "validated" : null,
+        redirects: redirectTargetsFromText(body),
+      });
+      addExecutionFindings(routing, record);
+      addRouteFinding(routing, {
+        code: "ROUTING_TANSTACK_GENERATOR_REQUIRED",
+        severity: "review",
+        category: "generation",
+        file,
+        line: record.source.line,
+        reason: "Preserve file-route IDs and generated typing with the TSRX-aware generator, or convert the tree explicitly to code-based routes.",
+      });
+    }
+  }
+}
+
+function inferRemixRoute(file) {
+  const extensionless = file.replace(/\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/u, "");
+  if (/(?:^|\/)app\/root$/u.test(extensionless) || extensionless === "root") {
+    return { convention: "root", parentConvention: null, sourcePattern: "/", normalizedPattern: "/", index: false, pathKind: "root" };
+  }
+  const marker = extensionless.indexOf("routes/");
+  if (marker === -1) return null;
+  let convention = extensionless.slice(marker + "routes/".length);
+  if (convention.endsWith("/route")) convention = convention.slice(0, -"/route".length);
+  convention = convention.replaceAll("/", ".");
+  const parts = convention.split(".").filter(Boolean);
+  const index = parts.at(-1) === "_index";
+  const urlParts = [];
+  let nestingDisabled = false;
+  for (const part of parts) {
+    if (part === "_index") continue;
+    if (part.startsWith("_") && !part.endsWith("_")) continue;
+    let segment = part;
+    if (segment.endsWith("_")) {
+      nestingDisabled = true;
+      segment = segment.slice(0, -1);
+    }
+    const optionalDynamic = /^\(\$([^)]+)\)$/.exec(segment);
+    if (optionalDynamic) urlParts.push(`:${optionalDynamic[1]}?`);
+    else if (segment === "$") urlParts.push("*");
+    else if (segment.startsWith("$")) urlParts.push(`:${segment.slice(1)}`);
+    else if (/^\(.+\)$/.test(segment)) urlParts.push(segment.slice(1, -1));
+    else if (segment) urlParts.push(segment);
+  }
+  const parentParts = nestingDisabled ? [] : parts.slice(0, -1);
+  return {
+    convention,
+    parentConvention: parentParts.join(".") || "root",
+    sourcePattern: `/${urlParts.join("/")}` || "/",
+    normalizedPattern: normalizeRoutePattern(urlParts.join("/")),
+    index,
+    pathKind: "filesystem-inferred",
+  };
+}
+
+function inspectRemixRoute(file, text, routing) {
+  const inferred = inferRemixRoute(file);
+  if (!inferred) return;
+  const lineFor = makeLineLocator(text);
+  const firstExport = /\bexport\b/.exec(text);
+  const locations = routing.moduleFeatures.get(file) ?? [];
+  const capabilities = uniqueSorted(locations.map((location) => location.feature));
+  const line = firstExport ? lineFor(firstExport.index) : 1;
+  const record = addRouteRecord(routing, {
+    model: "remix",
+    source: { file, line },
+    sourcePattern: inferred.sourcePattern,
+    normalizedPattern: inferred.normalizedPattern,
+    pathKind: inferred.pathKind,
+    index: inferred.index,
+    capabilities,
+    execution: capabilities.some((feature) => feature === "loader" || feature === "action") ? "server-and-client-review" : "client",
+    convention: inferred.convention,
+    parentConvention: inferred.parentConvention,
+  });
+  addExecutionFindings(routing, record);
+  addRouteFinding(routing, {
+    code: "ROUTING_REMIX_MODULE_REWRITE",
+    severity: "blocker",
+    category: "target",
+    file,
+    line,
+    reason: "Remix route-module exports need a selected data-router or full-app target; do not replace framework imports without rebuilding request and document ownership.",
+  });
+}
+
+function inspectRoutes(file, text, routeSignals, routing) {
   const extensionPattern = "(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)";
   const appSpecial = new RegExp(`^(?:src/)?app/(?:.+/)?(?:page|layout|template|loading|error|not-found|default|route)\\.${extensionPattern}$`);
   const pagesRoute = new RegExp(`^(?:src/)?pages/(?:.+\\.)?${extensionPattern}$`);
+  const importsReactRouter = /from\s+["'](?:react-router(?:-dom)?|@octanejs\/remix-router(?:\/dom)?)["']/.test(text);
 
   if (appSpecial.test(file)) addRouteSignal(routeSignals, "next-app", file, "app special file");
   if (pagesRoute.test(file)) addRouteSignal(routeSignals, "next-pages", file, "pages route file");
 
-  if (/\b(?:BrowserRouter|HashRouter|MemoryRouter|Routes|Route|useRoutes)\b/.test(text)) {
+  if (importsReactRouter && (/\b(?:BrowserRouter|HashRouter|MemoryRouter|Routes|useRoutes)\b/.test(text) || /<Route(?=[\s/>])/.test(text))) {
     addRouteSignal(routeSignals, "react-router-declarative", file, "declarative router API");
+    inspectDeclarativeRoutes(file, text, routing, "react-router-declarative");
   }
-  if (/\b(?:createBrowserRouter|createHashRouter|createMemoryRouter|RouterProvider)\b/.test(text)) {
+  if (importsReactRouter && /\b(?:createBrowserRouter|createHashRouter|createMemoryRouter|RouterProvider)\b/.test(text)) {
     addRouteSignal(routeSignals, "react-router-data", file, "data router API");
   }
   if (
@@ -589,19 +1538,273 @@ function inspectRoutes(file, text, routeSignals) {
     /\b(?:index|layout|prefix|route)\s*\(/.test(text) && file.includes("routes")
   ) {
     addRouteSignal(routeSignals, "react-router-framework", file, "framework route configuration");
+    inspectFrameworkRoutes(file, text, routing);
   }
-  if (/\b(?:createFileRoute|createLazyFileRoute)\b/.test(text) || /(?:^|\/)routeTree\.gen\.[^/]+$/.test(file)) {
+  const tanStackRootFile = /(?:^|\/)routes\/__root\.[^/]+$/.test(file) && /\b(?:createRootRoute|createRootRouteWithContext)\b/.test(text);
+  if (/\b(?:createFileRoute|createLazyFileRoute)\b/.test(text) || /(?:^|\/)routeTree\.gen\.[^/]+$/.test(file) || tanStackRootFile) {
     addRouteSignal(routeSignals, "tanstack-file", file, "file route API or generated tree");
+    inspectTanStackFileRoutes(file, text, routing);
   }
-  if (/\b(?:createRootRoute|createRoute|createRouter)\b/.test(text) && /@tanstack\/react-router/.test(text)) {
+  if (
+    /\b(?:createRootRoute|createRootRouteWithContext|createRoute)\b/.test(text) &&
+    /(?:@tanstack\/react-router|@octanejs\/tanstack-router)/.test(text) &&
+    !/\bcreateFileRoute\b/.test(text) &&
+    !/(?:^|\/)routes\/__root\.[^/]+$/.test(file)
+  ) {
     addRouteSignal(routeSignals, "tanstack-code", file, "code route API");
+    inspectTanStackCodeRoutes(file, text, routing);
   }
-  if (/^(?:app\/)?routes\//.test(file) && /@remix-run\//.test(text)) {
+  if ((/^(?:app\/)?routes\//.test(file) || /(?:^|\/)app\/root\.[^/]+$/.test(file)) && /@remix-run\//.test(text)) {
     addRouteSignal(routeSignals, "remix", file, "Remix route module");
+    inspectRemixRoute(file, text, routing);
   }
   if (/\b(?:history\.(?:pushState|replaceState)|popstate|location\.pathname)\b/.test(text)) {
     addRouteSignal(routeSignals, "custom-history", file, "browser history API");
   }
+
+  inspectDataRouteCalls(file, text, routing);
+}
+
+function resolveRouteModuleFile(configFile, moduleSpecifier, sourceFiles) {
+  if (!moduleSpecifier?.startsWith(".")) return null;
+  const base = path.posix.normalize(path.posix.join(path.posix.dirname(configFile), moduleSpecifier));
+  const candidates = [base];
+  if (!path.posix.extname(base)) {
+    for (const extension of [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs", ".cts", ".cjs"]) {
+      candidates.push(`${base}${extension}`);
+      candidates.push(`${base}/route${extension}`);
+    }
+  }
+  return candidates.find((candidate) => sourceFiles.has(candidate)) ?? null;
+}
+
+function mergeRecordModuleFeatures(record, routing) {
+  const files = record.model === "remix" || record.model === "tanstack-file" ? [record.source.file] : [];
+  const resolvedModule = resolveRouteModuleFile(record.source.file, record.module, routing.sourceFiles);
+  if (resolvedModule) files.push(resolvedModule);
+  for (const moduleSpecifier of record._relatedModules) {
+    const related = resolveRouteModuleFile(record.source.file, moduleSpecifier, routing.sourceFiles);
+    if (related) files.push(related);
+  }
+  const locations = files.flatMap((file) => routing.moduleFeatures.get(file) ?? []);
+  record.capabilities = uniqueSorted([...record.capabilities, ...locations.map((location) => location.feature)]);
+  record._searchKeys = uniqueSorted([
+    ...record._searchKeys,
+    ...files.flatMap((file) => routing.moduleSearchKeys.get(file) ?? []),
+  ]);
+  record._redirects = uniqueSorted([
+    ...record._redirects,
+    ...files.flatMap((file) => routing.moduleRedirects.get(file) ?? []),
+  ]);
+  if (record._searchKeys.length > 0 && record._searchMode === null) record._searchMode = "consumed-unvalidated";
+  for (const location of locations) {
+    if (location.feature === "loader") {
+      addRouteFinding(routing, {
+        code: "ROUTING_LOADER_TARGET_REQUIRED",
+        severity: "review",
+        category: "execution",
+        file: location.file,
+        line: location.line,
+        reason: "A loader needs an explicit browser/server target, request context, cache policy, error contract, and direct-navigation test.",
+      });
+    }
+    if (location.feature === "action") {
+      addRouteFinding(routing, {
+        code: "ROUTING_ACTION_TARGET_REQUIRED",
+        severity: "review",
+        category: "execution",
+        file: location.file,
+        line: location.line,
+        reason: "An action needs an explicit transport, validation, authentication, mutation, redirect, and revalidation target.",
+      });
+    }
+  }
+}
+
+function pathIsParent(candidate, child) {
+  if (candidate === null || child === null || candidate === child) return false;
+  if (candidate === "/") return child.startsWith("/");
+  return child.startsWith(`${candidate}/`);
+}
+
+function finalizeRoutingCollector(routing, models) {
+  for (const record of routing.records) mergeRecordModuleFeatures(record, routing);
+
+  const symbolRecords = new Map();
+  for (const record of routing.records) {
+    if (record._symbol) symbolRecords.set(`${record.source.file}\0${record._symbol}`, record);
+  }
+  for (const record of routing.records) {
+    if (!record._parentSymbol) continue;
+    const sameFile = symbolRecords.get(`${record.source.file}\0${record._parentSymbol}`);
+    const candidates = routing.records.filter((candidate) => candidate._symbol === record._parentSymbol);
+    const parent = sameFile ?? (candidates.length === 1 ? candidates[0] : null);
+    if (parent) record.parentId = parent.id;
+  }
+
+  const recordById = new Map(routing.records.map((record) => [record.id, record]));
+  const resolving = new Set();
+  function resolveCodePath(record) {
+    if (record.model !== "tanstack-code" || record.path.kind === "root") return record.path.normalized;
+    if (record._localPath === null) {
+      record.path.normalized = null;
+      return null;
+    }
+    if (resolving.has(record.id)) return record.path.normalized;
+    resolving.add(record.id);
+    const parent = record.parentId ? recordById.get(record.parentId) : null;
+    const parentPattern = parent ? resolveCodePath(parent) : "/";
+    record.path.normalized = joinRoutePattern(parentPattern, record._localPath, false, record._localPath === null);
+    resolving.delete(record.id);
+    return record.path.normalized;
+  }
+  for (const record of routing.records) resolveCodePath(record);
+
+  const tanStackFileRecords = routing.records.filter((record) => record.model === "tanstack-file");
+  for (const record of tanStackFileRecords) {
+    if (record.path.kind === "root" || record.parentId !== null) continue;
+    const candidates = tanStackFileRecords
+      .filter((candidate) => candidate.id !== record.id && (
+        pathIsParent(candidate.path.normalized, record.path.normalized) ||
+        (candidate.path.kind === "root" && record.path.normalized === "/")
+      ))
+      .sort((left, right) => (right.path.normalized?.length ?? 0) - (left.path.normalized?.length ?? 0));
+    if (candidates[0]) record.parentId = candidates[0].id;
+  }
+
+  const remixByConvention = new Map(
+    routing.records
+      .filter((record) => record.model === "remix" && record._convention)
+      .map((record) => [record._convention, record]),
+  );
+  for (const record of routing.records.filter((candidate) => candidate.model === "remix")) {
+    if (!record._parentConvention) continue;
+    let convention = record._parentConvention;
+    let parent = remixByConvention.get(convention) ?? null;
+    while (!parent && convention.includes(".")) {
+      convention = convention.slice(0, convention.lastIndexOf("."));
+      parent = remixByConvention.get(convention) ?? null;
+    }
+    parent ??= remixByConvention.get("root") ?? null;
+    if (parent && parent.id !== record.id) record.parentId = parent.id;
+  }
+
+  for (const record of routing.records) {
+    record.params = routeParams(record.path.normalized);
+    record.search = {
+      mode: record.capabilities.includes("search") ? record._searchMode ?? "review-required" : "none-detected",
+      keys: record._searchKeys,
+    };
+    record.redirects = record._redirects;
+    record.checkpoints = routeCheckpoints(record);
+  }
+
+  const modelIds = models.map((model) => model.id);
+  const targets = modelIds.map((id) => ({ model: id, ...(ROUTE_TARGETS[id] ?? {
+    protocol: id,
+    mode: "unknown",
+    candidate: "explicit-route-contract",
+    status: "review-required",
+    reason: "Select and verify a target router against the normalized route contract.",
+  }) }));
+  const unresolvedModels = modelIds.filter((id) => !routing.records.some((record) => record.model === id));
+  for (const model of unresolvedModels) {
+    const source = models.find((entry) => entry.id === model)?.files[0];
+    if (!source) continue;
+    addRouteFinding(routing, {
+      code: "ROUTING_MANIFEST_INCOMPLETE",
+      severity: "review",
+      category: "inventory",
+      file: source,
+      line: 1,
+      reason: "The routing protocol was detected, but no static route entries were safe to infer; document this model manually before editing routes.",
+    });
+  }
+
+  const featureLocations = new Map();
+  const routeFiles = new Set(routing.records.flatMap((record) => {
+    const files = [record.source.file];
+    const resolved = resolveRouteModuleFile(record.source.file, record.module, routing.sourceFiles);
+    if (resolved) files.push(resolved);
+    for (const moduleSpecifier of record._relatedModules) {
+      const related = resolveRouteModuleFile(record.source.file, moduleSpecifier, routing.sourceFiles);
+      if (related) files.push(related);
+    }
+    return files;
+  }));
+  for (const file of routeFiles) {
+    for (const location of routing.moduleFeatures.get(file) ?? []) {
+      featureLocations.set(`${location.feature}\0${location.file}\0${location.line}`, location);
+    }
+  }
+  const features = {};
+  for (const location of [...featureLocations.values()].sort(
+    (left, right) => left.feature.localeCompare(right.feature) || left.file.localeCompare(right.file) || left.line - right.line,
+  )) {
+    const summary = features[location.feature] ?? { count: 0, locations: [] };
+    summary.count += 1;
+    if (summary.locations.length < MAX_REPORTED_PATHS) summary.locations.push({ file: location.file, line: location.line });
+    features[location.feature] = summary;
+  }
+
+  const routes = routing.records
+    .sort((left, right) => left.source.file.localeCompare(right.source.file) || left.source.line - right.source.line || left.id.localeCompare(right.id))
+    .map((record) => {
+      const {
+        _localPath,
+        _parentSymbol,
+        _symbol,
+        _convention,
+        _parentConvention,
+        _relatedModules,
+        _searchKeys,
+        _searchMode,
+        _redirects,
+        ...publicRecord
+      } = record;
+      return publicRecord;
+    });
+  const findingItems = [...routing.findings.items].sort(
+    (left, right) => left.file.localeCompare(right.file) || left.line - right.line || left.code.localeCompare(right.code),
+  );
+  const dynamicRoutes = routes.filter((route) => route.path.normalized === null || route.path.kind === "dynamic-review").length;
+  const capabilityCounts = {};
+  for (const route of routes) {
+    for (const capability of route.capabilities) increment(capabilityCounts, capability);
+  }
+
+  return {
+    targets,
+    manifest: {
+      version: ROUTE_MANIFEST_VERSION,
+      status: modelIds.length === 0
+        ? "none"
+        : unresolvedModels.length > 0 || dynamicRoutes > 0
+          ? "partial-review-required"
+          : "inferred-review-required",
+      summary: {
+        routes: routes.length,
+        dynamicRoutes,
+        unresolvedModels,
+        capabilities: makeCountSummary(capabilityCounts),
+      },
+      applicationCheckpoints: uniqueSorted([
+        "direct-navigation",
+        "in-app-navigation",
+        "reload",
+        "back-forward",
+        "not-found",
+        ...routes.flatMap((route) => route.checkpoints),
+      ]),
+      routes,
+    },
+    features,
+    findings: {
+      count: routing.findings.count,
+      items: findingItems,
+      truncated: routing.findings.count > findingItems.length,
+    },
+  };
 }
 
 function inspectStyling(file, text, styling) {
@@ -1059,6 +2262,43 @@ export function formatStateMatrix(report) {
   return `${lines.join("\n")}\n`;
 }
 
+export function formatRouteManifest(report) {
+  const routesById = new Map(report.routing.manifest.routes.map((route) => [route.id, route]));
+  const lines = [
+    "# Normalized route manifest",
+    "",
+    `Source: \`${report.source}\``,
+    "",
+    "Generated from bounded static signals. Confirm dynamic values, execution boundaries, and every checkpoint before editing source routes.",
+    "",
+    "| Source | Model | Path | Parent | Search | Redirects | Features | Target | Checkpoints |",
+    "|---|---|---|---|---|---|---|---|---|",
+  ];
+
+  for (const route of report.routing.manifest.routes) {
+    const parent = route.parentId ? routesById.get(route.parentId) : null;
+    lines.push(
+      `| ${escapeMarkdownCell(`${route.source.file}:${route.source.line}`)} | ${escapeMarkdownCell(route.model)} | ${escapeMarkdownCell(route.path.normalized ?? "review required")} | ${escapeMarkdownCell(parent?.path.normalized ?? "—")} | ${escapeMarkdownCell(route.search.keys.join(", ") || route.search.mode)} | ${escapeMarkdownCell(route.redirects.join(", ") || "—")} | ${escapeMarkdownCell(route.capabilities.join(", ") || "—")} | ${escapeMarkdownCell(`${route.target.candidate} (${route.target.status})`)} | ${escapeMarkdownCell(route.checkpoints.join(", "))} |`,
+    );
+  }
+  if (report.routing.manifest.routes.length === 0) {
+    lines.push("| — | — | No static routes inferred. | — | — | — | — | — | Review detected routing models manually. |");
+  }
+
+  lines.push("", "## Target decisions", "");
+  for (const target of report.routing.targets) {
+    lines.push(`- ${target.model}: ${target.candidate} (${target.status}) — ${target.reason}`);
+  }
+  if (report.routing.targets.length === 0) lines.push("- No routing protocol detected.");
+
+  lines.push("", "## Application checkpoints", "");
+  for (const checkpoint of report.routing.manifest.applicationCheckpoints) lines.push(`- ${checkpoint}`);
+  if (report.routing.manifest.summary.unresolvedModels.length > 0) {
+    lines.push("", `Unresolved models: ${report.routing.manifest.summary.unresolvedModels.join(", ")}.`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 function calculateRisk({ blockers, warnings, routeIds }) {
   if (blockers.includes("NEXT_RSC_REWRITE") || blockers.includes("SERVER_ACTION_REWRITE")) return "critical";
   if (blockers.length > 0 || routeIds.some((id) => id !== "react-router-declarative" && id !== "custom-history")) return "high";
@@ -1084,6 +2324,7 @@ export async function auditReactApp(source, options = {}) {
   const dependencies = new Map();
   const dependencySources = new Map();
   const routeSignals = new Map();
+  const routing = createRoutingCollector();
   const styling = {
     cssFiles: [],
     cssModuleFiles: [],
@@ -1119,6 +2360,7 @@ export async function auditReactApp(source, options = {}) {
 
   for (const candidate of files) {
     const text = await readFile(candidate.absolutePath, "utf8");
+    routing.sourceFiles.add(candidate.relativePath);
 
     if (candidate.relativePath.endsWith("package.json")) {
       try {
@@ -1146,7 +2388,8 @@ export async function auditReactApp(source, options = {}) {
       continue;
     }
 
-    inspectRoutes(candidate.relativePath, text, routeSignals);
+    registerRouteModuleFeatures(candidate.relativePath, text, routing);
+    inspectRoutes(candidate.relativePath, text, routeSignals, routing);
     inspectStyling(candidate.relativePath, text, styling);
     inspectReact(candidate.relativePath, text, react);
     inspectInteractive(candidate.relativePath, text, react, interactive);
@@ -1184,6 +2427,7 @@ export async function auditReactApp(source, options = {}) {
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
   const routeIds = routes.map((route) => route.id);
+  const routingReport = finalizeRoutingCollector(routing, routes);
 
   const bindingCandidates = dependencyNames
     .map((name) => ({ name, binding: bindingCandidateFor(name) }))
@@ -1208,8 +2452,13 @@ export async function auditReactApp(source, options = {}) {
   if (react.classComponentFiles.length > 0) blockers.push("CLASS_COMPONENT_REWRITE");
   if ((react.apis.createRef ?? 0) > 0 || (react.apis.forwardRef ?? 0) > 0) blockers.push("REACT_API_REWRITE");
   if (interactive.findings.severities.has("blocker")) blockers.push("INTERACTIVE_API_REWRITE");
+  if (routing.findings.severities.has("blocker")) blockers.push("ROUTE_TARGET_DECISION_REQUIRED");
   if (routeIds.length > 0) warnings.push("ROUTE_CONTRACT_REQUIRED");
   if (routeIds.length > 1) warnings.push("MULTIPLE_ROUTE_MODELS");
+  if (routingReport.findings.count > 0) warnings.push("ROUTE_MANIFEST_REVIEW");
+  if (routing.findings.codes.has("ROUTING_LOADER_TARGET_REQUIRED") || routing.findings.codes.has("ROUTING_ACTION_TARGET_REQUIRED")) {
+    warnings.push("ROUTE_EXECUTION_TARGET_REQUIRED");
+  }
   if (styling.cssInJsFiles.length > 0) warnings.push("CSS_IN_JS_PLAN");
   if (react.textInputOnChangeFiles.length > 0) warnings.push("NATIVE_INPUT_EVENT_REVIEW");
   if (interactive.findings.codes.has("INTERACTIVE_EFFECT_CLEANUP_REVIEW")) warnings.push("EFFECT_CLEANUP_REVIEW");
@@ -1232,6 +2481,12 @@ export async function auditReactApp(source, options = {}) {
     frameworks.includes("nextjs") ||
     frameworks.includes("remix") ||
     react.serverDirectiveFiles.length > 0;
+  const requiresRouterTargetDecision = routeIds.includes("react-router-framework") || routeIds.includes("tanstack-file");
+  const target = requiresServerTargetReview
+    ? { candidate: "rsbuild-full-app", status: "review-required" }
+    : requiresRouterTargetDecision
+      ? { candidate: "router-target-decision", status: "review-required" }
+      : { candidate: "vite-spa", status: "default" };
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -1240,10 +2495,7 @@ export async function auditReactApp(source, options = {}) {
       styling: requestedStyle,
       destinationName: `${path.basename(root)}-beast`,
     },
-    target: {
-      candidate: requiresServerTargetReview ? "rsbuild-full-app" : "vite-spa",
-      status: requiresServerTargetReview ? "review-required" : "default",
-    },
+    target,
     inventory: {
       candidateFiles: files.length,
       packages: packages.sort((left, right) => left.path.localeCompare(right.path)),
@@ -1253,6 +2505,7 @@ export async function auditReactApp(source, options = {}) {
     routing: {
       models: routes,
       requiresContractReview: routeIds.length > 0,
+      ...routingReport,
     },
     styling: {
       tailwind: makePathSummary(styling.tailwindSignals),
@@ -1302,6 +2555,8 @@ function printHumanReport(report) {
     `Interactive findings: ${report.interactive.findings.count}`,
     `Parity checks: ${report.interactive.stateMatrix.checks}`,
     `Route models: ${modelNames}`,
+    `Normalized routes: ${report.routing.manifest.summary.routes}`,
+    `Route findings: ${report.routing.findings.count}`,
     `Risk: ${report.risk.level}`,
     `Blockers: ${report.risk.blockers.join(", ") || "none"}`,
     `Warnings: ${report.risk.warnings.join(", ") || "none"}`,
@@ -1320,6 +2575,7 @@ async function main(argv) {
   const report = await auditReactApp(options.source, options);
   const json = `${JSON.stringify(report, null, 2)}\n`;
   const matrix = formatStateMatrix(report);
+  const routes = formatRouteManifest(report);
 
   if (options.json === "-") {
     process.stdout.write(json);
@@ -1341,6 +2597,17 @@ async function main(argv) {
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, matrix, { encoding: "utf8", flag: options.force ? "w" : "wx" });
     process.stdout.write(`Wrote interactive parity matrix to ${outputPath}\n`);
+    return;
+  }
+  if (options.routes === "-") {
+    process.stdout.write(routes);
+    return;
+  }
+  if (options.routes) {
+    const outputPath = path.resolve(options.routes);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, routes, { encoding: "utf8", flag: options.force ? "w" : "wx" });
+    process.stdout.write(`Wrote normalized route manifest to ${outputPath}\n`);
     return;
   }
   printHumanReport(report);
