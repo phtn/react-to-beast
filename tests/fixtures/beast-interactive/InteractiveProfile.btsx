@@ -1,0 +1,66 @@
+module "use strong";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "octane";
+module
+  type ThemeName = "light" | "dark";
+  interface Submission {
+    name: string;
+    subscribed: boolean;
+    role: string;
+  }
+  interface InteractiveProfileProps {
+    initialName: string;
+    onConnect: () => void;
+    onDisconnect: () => void;
+    onRefAttach: (attached: boolean) => void;
+    onSubmit: (submission: Submission) => void;
+  }
+  const Theme = createContext<ThemeName>("light");
+
+component ThemeLabel
+  setup const theme = use(Theme);
+  p#theme-label Theme: #{theme}
+
+props { initialName, onConnect, onDisconnect, onRefAttach, onSubmit }: InteractiveProfileProps
+setup
+  const [name, setName] = useState(initialName);
+  const [subscribed, setSubscribed] = useState(false);
+  const [role, setRole] = useState("reader");
+  const [theme, setTheme] = useState<ThemeName>("light");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const reportInput = useCallback((element: HTMLInputElement | null) => {
+    onRefAttach(element !== null);
+    if (element !== null) return () => onRefAttach(false);
+  }, [onRefAttach]);
+  const inputRefs = useMemo(() => [inputRef, reportInput], [reportInput]);
+  useEffect(() => {
+    onConnect();
+    const focusInput = (event: KeyboardEvent) => {
+      if (event.key === "/") inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", focusInput);
+    return () => {
+      window.removeEventListener("keydown", focusInput);
+      onDisconnect();
+    };
+  }, [onConnect, onDisconnect]);
+  const submit = (event: SubmitEvent) => {
+    event.preventDefault();
+    onSubmit({ name, subscribed, role });
+  };
+
+Theme.Provider(value={theme})
+  form#profile-form(onSubmit={submit})
+    label(htmlFor="profile-name") Name
+    input#profile-name(ref={inputRefs} value={name} onInput={(event) => setName(event.currentTarget.value)})
+    label
+      input#profile-subscribe(type="checkbox" checked={subscribed} onChange={(event) => setSubscribed(event.currentTarget.checked)})
+      | Subscribe
+    label(htmlFor="profile-role") Role
+    select#profile-role(value={role} onChange={(event) => setRole(event.currentTarget.value)})
+      option(value="reader") Reader
+      option(value="editor") Editor
+    button#focus-name(type="button" onClick={() => inputRef.current?.focus()}) Focus name
+    button#toggle-theme(type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}) Toggle theme
+    button(type="submit") Save
+    output#profile-summary #{name} / #{subscribed ? "subscribed" : "not subscribed"} / #{role}
+    ThemeLabel

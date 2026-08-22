@@ -1,0 +1,15 @@
+import { use } from "octane";
+module interface AsyncBoundaryProps { result: Promise<string> }
+
+component Result
+  props { result }: AsyncBoundaryProps
+  setup const value = use(result);
+  p#async-result #{value}
+
+props { result }: AsyncBoundaryProps
+try
+  Result(result={result})
+pending
+  p#async-pending Loading…
+catch error, reset
+  button#async-retry(type="button" onClick={reset}) Retry: #{String(error)}

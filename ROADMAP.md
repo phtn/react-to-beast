@@ -29,9 +29,9 @@ Exit evidence:
 - every BTSX documentation example compiles through Beast and Octane;
 - Codex skill validation and publisher dry-run pass.
 
-## v0.2 — Interactive semantics
+## v0.2 — Interactive semantics (implemented)
 
-Add:
+Capabilities:
 
 - reviewed mappings for supported hooks and lifecycle behavior;
 - controlled/uncontrolled forms and a React-to-Octane event semantics table;
@@ -41,10 +41,11 @@ Add:
 
 Exit criteria:
 
-- representative fixtures cover state, effects with cleanup, text/checkbox/select inputs, refs, context, and portals;
-- converted fixtures compile and run in both development and production builds;
-- unsupported API reports identify a file and reason without exposing source content;
-- behavior tests cover keyboard input, cleanup, focus, and hydration where applicable.
+- representative fixtures cover state, effects with cleanup, text/checkbox/select inputs, refs, context, portals, boundaries, and omitted hook dependencies;
+- converted fixtures compile for client/server and development/production, transform in Vite development, and complete a Vite production build;
+- unsupported API reports identify a file, line, category, severity, and reason without exposing source content;
+- behavior tests cover native form events, keyboard input, cleanup, focus, context, portals, and hydration adoption;
+- the audit emits a source-safe Markdown state matrix and categorized binding candidates.
 
 ## v0.3 — Client and data routers
 
@@ -88,7 +89,7 @@ Add:
 
 - AST-assisted component conversion with source-located diagnostics;
 - dependency graph ordering, resumable checkpoints, dry-run plans, and conflict-aware writes;
-- supported React islands for intentionally deferred dependencies;
+- supported React-hosted Octane islands or explicit retained React boundaries for intentionally deferred dependencies;
 - asset/import rewriting and dead-source cleanup only after verification;
 - automated accessibility, browser, screenshot, and production-build parity reports.
 
@@ -97,7 +98,7 @@ Exit criteria:
 - a multi-route reference application ports from a clean checkout without editing the source tree;
 - every mutation appears in a previewable plan and can resume after an interrupted slice;
 - compile, type, unit, browser, accessibility, visual, SSR, and production-build gates are green;
-- the final report distinguishes fully migrated code, temporary islands, retained services, and accepted differences.
+- the final report distinguishes fully migrated code, React-hosted Octane islands, retained React/services boundaries, and accepted differences.
 
 ## v1.0 — Stable migration contract
 

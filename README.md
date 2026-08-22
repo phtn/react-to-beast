@@ -2,19 +2,24 @@
 
 A Codex skill for porting complete React applications to Beast BTSX → TSRX → Octane in verified stages. Tailwind is the default styling target, with pure CSS available as an explicit option.
 
-## Version 0.1
+## Version 0.2
 
-The foundation release provides:
+The interactive-semantics release provides:
 
 - a bounded, dependency-free React application audit;
 - detection for Vite, Create React App, React Router, TanStack Router, Remix, and Next.js conventions;
 - route-contract and server-boundary inventory without executing source-project scripts;
 - Tailwind-default and pure-CSS migration guidance;
 - safe scaffolding and basic presentational JSX-to-BTSX porting guidance;
-- risk flags for class components, refs, native input events, CSS-in-JS, bindings, React Server Components, and server actions;
-- fixtures covering Vite, React Router data routing, and the Next.js App Router.
+- source-located interactive findings with no source excerpts or secret values;
+- a generated Markdown parity matrix for state, effects, forms, refs, context, portals, boundaries, transitions, and hydration;
+- reviewed hook mappings, including React/Octane omitted-dependency semantics;
+- native event guidance for text fields, checkables, selects, forms, and React synthetic event types;
+- direct-ref, context, portal, Suspense/error-boundary, hydration, and React-hosted Octane-island strategies;
+- categorized Octane binding candidates with explicit surface/SSR review gates;
+- fixtures covering Vite, interactive React, React Router data routing, Next App Router, and executable Beast components.
 
-Advanced route and server conversions are intentionally identified rather than guessed through in this release.
+The test suite compiles client/server and development/production modes, executes focus/cleanup/form/portal/hydration behavior in a DOM, transforms the fixture in Vite development, and runs a production build. Advanced route and server conversions are intentionally identified rather than guessed through.
 
 ## Install locally
 
@@ -34,9 +39,10 @@ Ask for pure CSS when appropriate:
 
 ## Development
 
-Run the audit fixtures:
+Install development dependencies and run the audit/compiler/runtime fixtures:
 
 ```bash
+npm install
 npm test
 ```
 
@@ -53,10 +59,9 @@ uv run --isolated --with pyyaml python \
 
 See [ROADMAP.md](ROADMAP.md) for the staged plan and exit criteria:
 
-1. Interactive semantics: state, effects, forms, refs, context, stores, and library bindings.
-2. Routing: React Router modes, TanStack Router, Remix route modules, and contract parity.
-3. Next.js: Pages Router and App Router plans, server/client boundaries, actions, API routes, and deployment behavior.
-4. Advanced automation: AST-assisted conversion, React islands, SSR, and browser/visual parity checks.
+1. Routing: React Router modes, TanStack Router, Remix route modules, and contract parity.
+2. Next.js: Pages Router and App Router plans, server/client boundaries, actions, API routes, and deployment behavior.
+3. Advanced automation: AST-assisted conversion, React-hosted Octane islands, SSR, and browser/visual parity checks.
 
 ## License
 

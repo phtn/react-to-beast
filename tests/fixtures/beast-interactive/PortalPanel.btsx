@@ -1,0 +1,21 @@
+import { createPortal } from "octane";
+module
+  interface ToastProps { onDismiss: () => void }
+  interface PortalPanelProps extends ToastProps {
+    target: HTMLElement;
+    onBubble: () => void;
+  }
+  function PortaledToast({ target, onDismiss }: { target: HTMLElement; onDismiss: () => void }) {
+    return createPortal(Toast, target, { onDismiss });
+  }
+
+component Toast
+  props { onDismiss }: ToastProps
+  aside#portaled-toast
+    p(role="status") Saved
+    button(type="button" onClick={onDismiss}) Dismiss
+
+props { target, onDismiss, onBubble }: PortalPanelProps
+section#portal-owner(onClick={onBubble})
+  h2 Editor
+  PortaledToast(target={target} onDismiss={onDismiss})

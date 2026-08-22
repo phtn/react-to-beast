@@ -24,7 +24,7 @@ function auditFixture(name, style = "tailwind") {
 test("audits a basic Vite app and defaults toward a staged interactive port", () => {
   const report = auditFixture("vite-basic");
 
-  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.schemaVersion, 2);
   assert.equal(report.requested.styling, "tailwind");
   assert.deepEqual(report.target, { candidate: "vite-spa", status: "default" });
   assert.deepEqual(report.frameworks, ["react", "vite"]);
@@ -46,7 +46,9 @@ test("recognizes React Router data mode and proposes a reviewed Octane binding",
     {
       source: "react-router-dom",
       candidate: "@octanejs/remix-router",
+      category: "routing",
       status: "review-required",
+      declaredIn: ["package.json"],
     },
   ]);
   assert.equal(report.routing.requiresContractReview, true);
@@ -66,7 +68,7 @@ test("flags Next.js App Router server and styling boundaries", () => {
   assert.equal(report.styling.cssInJs.count, 1);
   assert.deepEqual(report.risk.blockers, ["NEXT_RSC_REWRITE", "SERVER_ACTION_REWRITE"]);
   assert.equal(report.risk.level, "critical");
-  assert.deepEqual(report.recommendedPhases, ["foundation", "routing", "server"]);
+  assert.deepEqual(report.recommendedPhases, ["foundation", "interactive", "routing", "server"]);
 });
 
 test("prints help without reading a source tree", () => {
@@ -96,7 +98,96 @@ test("refuses to replace a JSON report unless force is explicit", async () => {
       encoding: "utf8",
     });
     assert.equal(replaced.status, 0, replaced.stderr);
-    assert.equal(JSON.parse(await readFile(outputPath, "utf8")).schemaVersion, 1);
+    assert.equal(JSON.parse(await readFile(outputPath, "utf8")).schemaVersion, 2);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("produces source-located interactive findings and a parity state matrix", () => {
+  const report = auditFixture("react-interactive");
+  const findingCodes = report.interactive.findings.items.map((finding) => finding.code);
+  const profileMatrix = report.interactive.stateMatrix.entries.find(
+    (entry) => entry.file === "src/InteractiveProfile.tsx",
+  );
+
+  assert.equal(report.react.hooks.useState, 4);
+  assert.equal(report.react.apis.forwardRef, 1);
+  assert.equal(report.interactive.controls.textEntry.count, 3);
+  assert.equal(report.interactive.controls.checkable.count, 1);
+  assert.equal(report.interactive.controls.select.count, 1);
+  assert.equal(report.react.textInputOnChange.count, 1);
+  assert.ok(findingCodes.includes("INTERACTIVE_NATIVE_TEXT_ONCHANGE"));
+  assert.ok(findingCodes.includes("INTERACTIVE_SYNTHETIC_EVENT_TYPE_REWRITE"));
+  assert.ok(findingCodes.includes("INTERACTIVE_FORWARD_REF_REWRITE"));
+  assert.ok(findingCodes.includes("INTERACTIVE_CLASS_COMPONENT_REWRITE"));
+  assert.ok(findingCodes.includes("INTERACTIVE_CLASS_ERROR_BOUNDARY_REWRITE"));
+  assert.ok(findingCodes.includes("INTERACTIVE_EFFECT_CLEANUP_REVIEW"));
+  assert.equal(
+    findingCodes.filter((code) => code === "INTERACTIVE_OMITTED_DEPENDENCY_SEMANTICS").length,
+    3,
+  );
+  assert.ok(report.interactive.findings.items.every((finding) => finding.file && finding.line > 0 && finding.reason));
+  assert.deepEqual(
+    profileMatrix.checks.map((check) => check.id),
+    [
+      "checkable-activation",
+      "context-provider-update",
+      "effect-ownership",
+      "form-submit",
+      "pending-error-retry",
+      "portal-ownership",
+      "ref-lifecycle",
+      "select-change",
+      "state-update",
+      "text-every-edit",
+      "uncontrolled-reset",
+    ],
+  );
+  assert.deepEqual(
+    report.dependencies.bindingCandidates.map(({ source, candidate, category }) => ({ source, candidate, category })),
+    [
+      { source: "@radix-ui/react-dialog", candidate: "@octanejs/radix", category: "ui" },
+      { source: "framer-motion", candidate: "@octanejs/motion", category: "animation" },
+      { source: "lucide-react", candidate: "@octanejs/lucide", category: "icons" },
+      { source: "react-hook-form", candidate: "@octanejs/hook-form", category: "forms" },
+      { source: "styled-components", candidate: "@octanejs/styled-components", category: "styling" },
+      { source: "swr", candidate: "@octanejs/swr", category: "data" },
+      { source: "zustand", candidate: "@octanejs/zustand", category: "state" },
+    ],
+  );
+  assert.equal(report.risk.level, "high");
+  assert.ok(report.risk.blockers.includes("INTERACTIVE_API_REWRITE"));
+});
+
+test("renders the interactive matrix as source-safe Markdown", () => {
+  const source = path.join(testsDirectory, "fixtures", "react-interactive");
+  const result = spawnSync(process.execPath, [auditScript, source, "--matrix", "-"], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /# Interactive parity matrix/);
+  assert.match(result.stdout, /src\/InteractiveProfile\.tsx \| text-every-edit/);
+  assert.doesNotMatch(result.stdout, /setInterval\(\(\)/);
+  assert.equal(result.stderr, "");
+});
+
+test("does not echo malformed package contents in its report", async () => {
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "react-beast-invalid-package-"));
+  try {
+    await writeFile(
+      path.join(temporaryDirectory, "package.json"),
+      '{"name":"do-not-echo-this-value", trailing}',
+      "utf8",
+    );
+    const result = spawnSync(process.execPath, [auditScript, temporaryDirectory, "--json", "-"], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).inventory.packages[0].parseError, "invalid-json");
+    assert.doesNotMatch(result.stdout, /do-not-echo-this-value/);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }

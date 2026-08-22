@@ -8,7 +8,7 @@ license: ISC
 
 Port applications as verified vertical slices. Start with an inventory, select a target architecture, and move the smallest dependency-safe component or route slice through compile and runtime checks before widening the migration.
 
-Version 0.1 covers whole-project inventory, target selection, Tailwind-or-CSS planning, scaffolding, and basic presentational component ports. It recognizes interactive, router, and server-framework boundaries but does not pretend to automate them safely. Record those boundaries and stop at them until the corresponding migration phase is implemented or the user explicitly chooses a reviewed manual conversion.
+Version 0.2 covers whole-project inventory, target selection, Tailwind-or-CSS planning, scaffolding, presentational components, and reviewed interactive function-component ports. It generates source-located findings and a parity matrix for hooks, forms/native events, refs, context, portals, boundaries, hydration, and third-party bindings. Router and server-framework conversion remain later milestones; inventory them without guessing through them.
 
 ## Protect the source
 
@@ -37,7 +37,14 @@ node "$REACT_TO_BEAST_SKILL_DIR/scripts/react-beast-audit.mjs" <source> \
   --style tailwind --json -
 ```
 
-Use `--style css` for the pure-CSS path. Save the JSON to a new file only when the user benefits from a durable report; the command refuses to replace one unless `--force` is supplied.
+Generate the interactive test contract when the report includes interactive signals:
+
+```bash
+node "$REACT_TO_BEAST_SKILL_DIR/scripts/react-beast-audit.mjs" <source> \
+  --style tailwind --matrix -
+```
+
+Use `--style css` for the pure-CSS path. `--json` and `--matrix` are separate output modes. Save either to a new file only when the user benefits from a durable artifact; the command refuses to replace one unless `--force` is supplied.
 
 Read the report as a migration map, not as proof of compatibility. Confirm ambiguous findings in source files before acting. Classify work into these phases:
 
@@ -63,6 +70,10 @@ Read only the reference needed for the current slice:
 
 - For JSX/BTSX conversion, read [component-porting.md](references/component-porting.md).
 - For Tailwind and CSS choices, read [styling.md](references/styling.md).
+- When `interactive.summary.files` is nonzero, read [interactive-semantics.md](references/interactive-semantics.md).
+- When controls or synthetic-event findings appear, read [forms-and-events.md](references/forms-and-events.md).
+- When ref, context, portal, boundary, or hydration signals appear, read [refs-context-boundaries.md](references/refs-context-boundaries.md).
+- When binding candidates or unknown React-facing dependencies appear, read [bindings.md](references/bindings.md).
 - When any router or metaframework is detected, read [routing-inventory.md](references/routing-inventory.md) before editing routes.
 
 ## 3. Scaffold the destination
@@ -90,7 +101,7 @@ For each slice:
 1. List its props, rendered states, event behavior, styles, assets, imports, and route/data dependencies.
 2. Port types and pure helpers first.
 3. Convert JSX structure to indentation-based BTSX without redesigning public contracts unnecessarily.
-4. Replace React-only runtime behavior with verified Octane APIs or a documented compatibility boundary.
+4. Replace React-only runtime behavior with verified Octane APIs or a documented compatibility boundary. For interactive slices, implement the generated matrix and follow the relevant interactive reference.
 5. Move styling according to [styling.md](references/styling.md).
 6. Compile the changed `.btsx` files, run the target typecheck/build, and exercise the affected state or URL.
 7. Record parity gaps before beginning the next slice.
@@ -106,17 +117,27 @@ At minimum:
 - test default, empty, loading, error, and interactive states that the slice owns;
 - compare key routes and layouts at representative viewport sizes;
 - verify direct navigation, back/forward behavior, params, search state, and redirects for migrated routes;
-- report unsupported APIs, temporary React islands, and deliberate visual or behavioral differences.
+- report unsupported APIs, retained React boundaries or React-hosted Octane islands, and deliberate visual or behavioral differences.
+- for interactive slices, exercise native events, effect/ref cleanup, keyboard/focus behavior, provider updates, portal ownership, and hydration rows that the matrix identifies.
 
-## Stop conditions in v0.1
+## v0.2 capability gates
 
-Stop, explain the boundary, and propose the next migration phase when a slice contains:
+Proceed through function-component state, supported hooks, native forms, ordinary refs, context, portals, boundaries, and hydration only after their audit findings and matrix rows are reviewed. Preserve explicit dependency arrays; React's omitted dependency argument means every render, while Octane infers captures, so use `null` only when every-render parity is intended.
 
-- class components, legacy context, string refs, `createRef`, or `forwardRef` assumptions;
+Require an explicit rewrite plan before changing:
+
+- class lifecycle behavior, legacy context, string refs, `createRef`, `forwardRef`, class error boundaries, legacy roots, `StrictMode` assumptions, `Profiler`, or `SuspenseList`;
+- React synthetic event behavior or named React event types not yet mapped to native browser events;
+- an effect whose external resource ownership or cleanup is ambiguous;
+- a ref API whose public imperative contract or attach/detach lifetime is not understood;
+- a third-party package until the exact used surface, differences, and SSR/hydration status of its candidate binding are verified;
+- a React-hosted incremental island unless the migration contract intentionally retains a React 19 host. `octane/react` hosts Octane inside React; it does not automatically host React packages inside a standalone Beast app.
+
+Stop, explain the boundary, and move it to the routing or server milestone when a slice contains:
+
 - React Server Components, Flight/cache behavior, server actions, middleware, or framework-specific streaming;
 - router loaders/actions, generated route types, blockers, deferred data, or other route behavior not yet mapped to a verified Beast binding;
-- a React package with no verified Octane binding or native equivalent;
 - runtime CSS-in-JS, Sass/Less build assumptions, or styling whose ordering/scoping cannot yet be reproduced;
-- text-input `onChange` behavior that has not been reviewed for Octane's event semantics.
+- a React package with no verified Octane binding, native equivalent, or explicit retained boundary.
 
-The audit can identify these boundaries. It does not authorize guessing through them.
+The audit identifies likely boundaries without reading secrets or executing source code. It does not authorize guessing through them.

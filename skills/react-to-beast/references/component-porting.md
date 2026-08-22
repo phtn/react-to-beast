@@ -103,13 +103,12 @@ Preserve React keys conceptually. Prefer stable domain identifiers over indexes.
 - Port children contracts deliberately. A React component that clones, filters, or inspects children is not a basic presentational component.
 - Verify asset URLs relative to the destination bundler and public directory.
 
-## Escalate these boundaries
+## Route interactive boundaries
 
-- **State and effects:** map to verified Octane hooks and check cleanup, batching, and hydration behavior.
-- **Inputs:** Octane text input semantics commonly require `onInput` where React used `onChange`; test composition, controlled values, and accessibility.
-- **Classes and refs:** do not guess through class lifecycle methods, string refs, `createRef`, or `forwardRef`.
-- **Context and providers:** inventory every consumer and initialization boundary before replacing the provider.
-- **Third-party components:** use a documented `@octanejs/*` binding only after verifying the API surface used by this app.
+- **State and effects:** read [interactive-semantics.md](interactive-semantics.md) and implement the generated matrix.
+- **Inputs and forms:** read [forms-and-events.md](forms-and-events.md); text per-edit handling commonly moves from React `onChange` to native `onInput`.
+- **Refs, context, portals, boundaries, hydration:** read [refs-context-boundaries.md](refs-context-boundaries.md).
+- **Third-party components and hooks:** read [bindings.md](bindings.md) and verify the exact used surface.
 - **Server components:** keep server data and secrets on the server; never make a component client-side merely to simplify a port.
 
-For an unsupported dependency, choose one explicit path: replace it with a native/Octane implementation, isolate it temporarily as a React island when supported, or defer that slice. Record the choice and its removal condition.
+For an unsupported dependency, choose one explicit path: replace it with a native/Octane implementation, retain a separately owned boundary, use an Octane island inside a deliberately retained React 19 host, or defer that slice. `octane/react` does not automatically make a React package runnable inside a standalone Beast app. Record the choice and its removal condition.
