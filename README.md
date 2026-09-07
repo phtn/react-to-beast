@@ -4,6 +4,8 @@ A Codex skill for porting complete React applications to Beast BTSX → TSRX →
 
 ## Version 0.3
 
+Release `0.3.1` is verified with `beast-tsrx@0.2.60`, `create-beast@0.2.60`, and `octane@0.2.6`.
+
 The client/data-routing release provides:
 
 - a bounded, dependency-free React application audit;
@@ -26,7 +28,11 @@ The client/data-routing release provides:
 
 The test suite compiles client/server and development/production modes, executes interactive and routed behavior in a DOM, compares source and Beast route manifests, transforms fixtures through Vite, and runs production builds. Executable React Router Data and TanStack code-router Beast fixtures prove nested links, params/search, direct entry, back/forward, redirects, loader errors, and not-found state; the React Router fixture also proves actions. React Router Framework Mode, Remix request ownership, Next.js, and broader server conversions are explicitly planned rather than guessed through.
 
-## Install locally
+## Install
+
+```bash
+npx skills add https://github.com/phtn/react-to-beast --skill react-to-beast
+```
 
 From this repository:
 
