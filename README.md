@@ -4,7 +4,7 @@ A Codex skill for porting complete React applications to Beast BTSX → TSRX →
 
 ## Version 0.3
 
-Release `0.3.1` is verified with `beast-tsrx@0.2.60`, `create-beast@0.2.60`, and `octane@0.2.6`.
+Release `0.7.1` targets `beast-tsrx@0.7.1`, `create-beast@0.7.1`, and `octane@0.7.1`.
 
 The client/data-routing release provides:
 

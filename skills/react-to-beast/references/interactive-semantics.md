@@ -22,7 +22,7 @@ Confirm every source-located finding in the file. The audit is static and intent
 | `useEffect` | Direct for external synchronization. Preserve cleanup and dependency behavior explicitly. |
 | `useLayoutEffect` | Direct when work must occur before paint; do not promote ordinary effects. |
 | `useInsertionEffect` | Direct for styling infrastructure, after verifying style ordering and SSR. |
-| `useMemo`, `useCallback`, `memo` | Supported. Preserve identity/recomputation boundaries when callers rely on them. |
+| `useMemo`, `useCallback`, `memo` | Compatibility mode supports these APIs. Strong mode rejects manual `useMemo`/`useCallback`; use plain declarations and verify compiler-managed identity/recomputation boundaries. |
 | `useRef` | Direct for DOM nodes, timers, and other non-render state. Strong mode rejects writes during render. |
 | `useImperativeHandle` | Supported with an ordinary `ref` prop; `forwardRef` is not used. |
 | `createContext`, `useContext`, `use(context)` | Supported. Preserve fallback values and provider ownership. |
@@ -109,3 +109,5 @@ After a component compiles, enable `module "use strong";` for the slice when pra
 - Any deliberate semantic improvement is listed separately from parity changes.
 
 When the destination uses a different Octane version than the generated Beast project, recheck the current [Core APIs](https://octanejs.dev/docs/core-apis) and [Differences from React](https://octanejs.dev/docs/differences-from-react) before applying these mappings.
+
+On Octane 0.4.3 with Strong mode, use a lazy initializer such as `useState(() => initialName)` to preserve React’s initial-only prop state. Use `useLinkedState` only when following future prop changes is intended. Redundant explicit dependency arrays can produce compiler hints; retain them during a parity port unless equivalence has been reviewed. Strong mode rejects compatibility imports such as `flushSync`; test code can use `act` to settle scheduled updates.
