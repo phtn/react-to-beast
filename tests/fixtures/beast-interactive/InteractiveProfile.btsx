@@ -1,5 +1,4 @@
-module "use strong";
-import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import { useCallback, useMemo, createContext, use, useEffect, useRef, useState } from "octane";
 module
   type ThemeName = "light" | "dark";
   interface Submission {
@@ -22,7 +21,7 @@ component ThemeLabel
 
 props { initialName, onConnect, onDisconnect, onRefAttach, onSubmit }: InteractiveProfileProps
 setup
-  const [name, setName] = useState(initialName);
+  const [name, setName] = useState(() => initialName);
   const [subscribed, setSubscribed] = useState(false);
   const [role, setRole] = useState("reader");
   const [theme, setTheme] = useState<ThemeName>("light");
@@ -48,7 +47,7 @@ setup
     onSubmit({ name, subscribed, role });
   };
 
-Theme.Provider(value={theme})
+Theme(value={theme})
   form#profile-form(onSubmit={submit})
     label(htmlFor="profile-name") Name
     input#profile-name(ref={inputRefs} value={name} onInput={(event) => setName(event.currentTarget.value)})

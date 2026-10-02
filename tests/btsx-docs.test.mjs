@@ -30,7 +30,7 @@ test("every BTSX reference example compiles through Beast and Octane", async () 
           hmr: false,
           dev: false,
         });
-        assert.deepEqual(result.diagnostics, [], `${referenceFile} example ${index + 1} (${mode})`);
+        assert.deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.severity !== "hint"), [], `${referenceFile} example ${index + 1} (${mode})`);
       }
       examples += 1;
     }

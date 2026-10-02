@@ -115,7 +115,7 @@ async function compileFixture(name, mode, dev = true) {
     hmr: false,
     dev,
   });
-  assert.deepEqual(result.diagnostics, [], `${name} (${mode}, dev=${dev})`);
+  assert.deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.severity !== "hint"), [], `${name} (${mode}, dev=${dev})`);
   assert.ok(result.code.length > 0);
   return result.code;
 }

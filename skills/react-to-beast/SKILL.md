@@ -6,7 +6,7 @@ license: ISC
 
 # React to Beast
 
-The verified target toolchain is `beast-tsrx@0.2.60`, `create-beast@0.2.60`, and `octane@0.2.6`. Use this compatible set for new migration targets; preserve an existing target's versions unless upgrading is in scope.
+This revision targets `beast-tsrx@0.7.1`, `create-beast@0.7.1`, and `octane@0.7.1`. These release numbers move together. Preserve an existing project’s versions unless upgrading is in scope.
 
 Port applications as verified vertical slices. Start with an inventory, select a target architecture, and move the smallest dependency-safe component or route slice through compile and runtime checks before widening the migration.
 
